@@ -45,18 +45,18 @@ class WordPressScreenshotGeneration: XCTestCase {
             .showOnly(.drafts)
 
         let firstPostEditorScreenshot = postList.selectPost(withSlug: "summer-band-jam")
-        snapshot("1-PostEditor")
+        thenTakeScreenshot(1, named: "PostEditor")
         firstPostEditorScreenshot.close()
 
         // Get a screenshot of the drafts feature
         let secondPostEditorScreenshot = postList.selectPost(withSlug: "ideas")
-        snapshot("5-DraftEditor")
+        thenTakeScreenshot(5, named: "DraftEditor")
         secondPostEditorScreenshot.close()
 
         // Get a screenshot of the full-screen editor
         if isIpad {
             let ipadScreenshot = postList.selectPost(withSlug: "now-booking-summer-sessions")
-            snapshot("6-No-Keyboard-Editor")
+            thenTakeScreenshot(6, named: "No-Keyboard-Editor")
             ipadScreenshot.close()
         }
 
@@ -66,7 +66,7 @@ class WordPressScreenshotGeneration: XCTestCase {
 
         _ = mySite.gotoMediaScreen()
         sleep(imagesWaitTime) // wait for post images to load
-        snapshot("4-Media")
+        thenTakeScreenshot(4, named: "Media")
 
         if !isIpad {
             postList.pop()
@@ -77,12 +77,21 @@ class WordPressScreenshotGeneration: XCTestCase {
             .dismissCustomizeInsightsNotice()
             .switchTo(mode: .years)
 
-        snapshot("2-Stats")
+        thenTakeScreenshot(2, named: "Stats")
 
         TabNavComponent()
             .gotoNotificationsScreen()
             .dismissNotificationAlertIfNeeded()
 
-        snapshot("3-Notifications")
+        thenTakeScreenshot(3, named: "Notifications")
+    }
+}
+
+extension XCTestCase {
+    func thenTakeScreenshot(_ index: Int, named title: String) {
+        let mode = isDarkMode ? "dark" : "light"
+        let filename = "\(index)-\(mode)-\(title)"
+
+        snapshot(filename)
     }
 }
