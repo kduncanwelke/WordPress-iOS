@@ -37,6 +37,7 @@ static NSString * const SourceAttributionStandardTaxonomy = @"standard-pick";
 @dynamic isLiked;
 @dynamic isReblogged;
 @dynamic isWPCom;
+@dynamic organizationID;
 @dynamic likeCount;
 @dynamic score;
 @dynamic siteID;
@@ -52,6 +53,8 @@ static NSString * const SourceAttributionStandardTaxonomy = @"standard-pick";
 @dynamic isSiteBlocked;
 @dynamic sourceAttribution;
 @dynamic isSavedForLater;
+@dynamic isSeen;
+@dynamic isSeenSupported;
 
 @dynamic primaryTag;
 @dynamic primaryTagSlug;
@@ -109,6 +112,7 @@ static NSString * const SourceAttributionStandardTaxonomy = @"standard-pick";
     post.isLiked = remotePost.isLiked;
     post.isReblogged = remotePost.isReblogged;
     post.isWPCom = remotePost.isWPCom;
+    post.organizationID = remotePost.organizationID;
     post.likeCount = remotePost.likeCount;
     post.permaLink = remotePost.permalink;
     post.postID = remotePost.postID;
@@ -117,6 +121,8 @@ static NSString * const SourceAttributionStandardTaxonomy = @"standard-pick";
     post.score = remotePost.score;
     post.siteID = remotePost.siteID;
     post.sortDate = remotePost.sortDate;
+    post.isSeen = remotePost.isSeen;
+    post.isSeenSupported = remotePost.isSeenSupported;
 
     if (existing && [topic isKindOfClass:[ReaderSearchTopic class]]) {
         // Failsafe.  The `read/search` endpoint might return the same post on
@@ -231,6 +237,12 @@ static NSString * const SourceAttributionStandardTaxonomy = @"standard-pick";
 - (BOOL)isPrivate
 {
     return self.isBlogPrivate;
+}
+
+- (BOOL)isP2Type
+{
+    NSInteger orgID = [self.organizationID intValue];
+    return orgID == SiteOrganizationTypeP2 || orgID == SiteOrganizationTypeAutomattic;
 }
 
 - (NSString *)authorString

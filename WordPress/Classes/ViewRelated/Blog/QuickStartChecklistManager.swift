@@ -122,17 +122,18 @@ extension QuickStartChecklistManager: UITableViewDelegate {
         return .delete
     }
 
-    func tableView(_ tableView: UITableView, editActionsForRowAt indexPath: IndexPath) -> [UITableViewRowAction]? {
+    func tableView(_ tableView: UITableView, trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath) -> UISwipeActionsConfiguration? {
         guard let section = Sections(rawValue: indexPath.section), section == .todo else {
             return nil
         }
 
         let buttonTitle = NSLocalizedString("Skip", comment: "Button title that appears when you swipe to left the row. It indicates the possibility to skip a specific tour.")
-        let skip = UITableViewRowAction(style: .destructive, title: buttonTitle) { [weak self] (_, indexPath) in
+        let skip = UIContextualAction(style: .destructive, title: buttonTitle) { [weak self] (_, _, _) in
             self?.tableView(tableView, completeTourAt: indexPath)
         }
         skip.backgroundColor = .error
-        return [skip]
+
+        return UISwipeActionsConfiguration(actions: [skip])
     }
 }
 
@@ -190,9 +191,6 @@ private extension QuickStartChecklistManager {
     }
 
     func tableView(_ tableView: UITableView, completeTourAt indexPath: IndexPath) {
-        guard let tourGuide = QuickStartTourGuide.find() else {
-            return
-        }
         let tour = todoTours[indexPath.row]
         todoTours.remove(at: indexPath.row)
         completedTours.append(tour)
@@ -213,7 +211,7 @@ private extension QuickStartChecklistManager {
                 if self.shouldShowCompleteTasksScreen() {
                     self.didTapHeader(self.completedSectionCollapse)
                 }
-                tourGuide.complete(tour: tour, for: self.blog, postNotification: false)
+                QuickStartTourGuide.shared.complete(tour: tour, for: self.blog, postNotification: false)
                 let sections = IndexSet(integer: Sections.todo.rawValue)
                 tableView.reloadSections(sections, with: .automatic)
             }

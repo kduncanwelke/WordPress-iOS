@@ -103,10 +103,13 @@ final class SiteAssemblyContentView: UIView {
         }
     }
 
+    let siteCreator: SiteCreator
+
     // MARK: SiteAssemblyContentView
 
     /// The designated initializer.
-    init() {
+    init(siteCreator: SiteCreator) {
+        self.siteCreator = siteCreator
         self.completionLabel = {
             let label = UILabel()
 
@@ -202,7 +205,7 @@ final class SiteAssemblyContentView: UIView {
         }()
 
         self.activityIndicator = {
-            let activityIndicator = UIActivityIndicatorView(style: .whiteLarge)
+            let activityIndicator = UIActivityIndicatorView(style: .large)
 
             activityIndicator.translatesAutoresizingMaskIntoConstraints = false
             activityIndicator.hidesWhenStopped = true
@@ -297,7 +300,7 @@ final class SiteAssemblyContentView: UIView {
             return
         }
 
-        let assembledSiteView = AssembledSiteView(domainName: siteName, siteURLString: siteURLString)
+        let assembledSiteView = AssembledSiteView(domainName: siteName, siteURLString: siteURLString, siteCreator: siteCreator)
         addSubview(assembledSiteView)
 
         if let buttonContainer = buttonContainerContainer {

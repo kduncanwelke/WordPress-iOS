@@ -47,6 +47,9 @@ class ReaderTabViewModelTests: XCTestCase {
     var viewModel: ReaderTabViewModel!
     var settingsPresenter: MockSettingsPresenter!
 
+    var contextManager: TestContextManager!
+    var context: MockContext!
+
     override func setUp() {
         store = MockItemsStore()
         settingsPresenter = MockSettingsPresenter()
@@ -54,6 +57,9 @@ class ReaderTabViewModelTests: XCTestCase {
                                        searchNavigationFactory: { },
                                        tabItemsStore: store,
                                        settingsPresenter: settingsPresenter)
+
+        contextManager = TestContextManager()
+        context = contextManager.getMockContext()
     }
 
     override func tearDown() {
@@ -61,6 +67,9 @@ class ReaderTabViewModelTests: XCTestCase {
         store = nil
         settingsPresenter = nil
         makeContentControllerExpectation = nil
+
+        contextManager = nil
+        context = nil
     }
 
     func testRefreshTabBar() {
@@ -96,25 +105,6 @@ class ReaderTabViewModelTests: XCTestCase {
         }
     }
 
-    func testSettingsTapped() {
-        // Given
-        let settingsTappedExpectation = expectation(description: "Settings button was tapped")
-        viewModel.settingsTapped = { view in
-            settingsTappedExpectation.fulfill()
-            XCTAssertEqual("test view", view.accessibilityIdentifier!)
-        }
-        let view = UIView()
-        view.accessibilityIdentifier = "test view"
-        // When
-        viewModel.presentSettings(from: view)
-        // Then
-        waitForExpectations(timeout: 4) { error in
-            if let error = error {
-                XCTFail("waitForExpectationsWithTimeout errored: \(error)")
-            }
-        }
-    }
-
     func testPresentFilterFromView() {
         // Given
         let filterTappedExpectation = expectation(description: "Filter button was tapped")
@@ -134,11 +124,6 @@ class ReaderTabViewModelTests: XCTestCase {
 
     func testResetFilter() {
         // Given
-        let context = MockContext.getContext()!
-
-        let filterTopic = ReaderAbstractTopic(context: context)
-        viewModel.selectedFilter = filterTopic
-
         let selectedTopic = ReaderAbstractTopic(context: context)
         selectedTopic.title = "selected topic"
         let item = ReaderTabItem(ReaderContent(topic: selectedTopic))
@@ -162,7 +147,6 @@ class ReaderTabViewModelTests: XCTestCase {
         // Given
         makeContentControllerExpectation = expectation(description: "Content controller was constructed")
 
-        let context = MockContext.getContext()!
         let topic = ReaderAbstractTopic(context: context)
         topic.title = "content topic"
         let content = ReaderContent(topic: topic)

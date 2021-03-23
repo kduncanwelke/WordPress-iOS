@@ -1,166 +1,135 @@
 import UIKit
 
-protocol ReaderTopicsCardCellDelegate: class {
-    func didSelect(topic: ReaderTagTopic)
-}
-
 /// A cell that displays topics the user might like
 ///
-class ReaderTopicsCardCell: UITableViewCell {
-    private let containerView = UIView()
+class ReaderTopicsCardCell: UITableViewCell, NibLoadable {
+    // Views
+    @IBOutlet weak var containerView: UIView!
+    @IBOutlet weak var headerLabel: UILabel!
+    @IBOutlet weak var collectionView: UICollectionView!
 
-    private let tableView = TopicsTableView()
-
-    private var topics: [ReaderTagTopic] = [] {
+    private(set) var data: [ReaderAbstractTopic] = [] {
         didSet {
-            guard oldValue != topics else {
+            guard oldValue != data else {
                 return
             }
 
-            tableView.reloadData()
+            collectionView.reloadData()
         }
     }
 
-    private let cellIdentifier = "TopicCell"
+    weak var delegate: ReaderTopicsTableCardCellDelegate?
 
-    /// Constraints to be activated in compact horizontal size class
-    private var compactConstraints: [NSLayoutConstraint] = []
+    func configure(_ data: [ReaderAbstractTopic]) {
+        self.data = data
+    }
 
-    /// Constraints to be activated in regular horizontal size class
-    private var regularConstraints: [NSLayoutConstraint] = []
+    override func awakeFromNib() {
+        super.awakeFromNib()
 
-    weak var delegate: ReaderTopicsCardCellDelegate?
-
-    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
-        super.init(style: style, reuseIdentifier: reuseIdentifier)
-        setupTableView()
         applyStyles()
 
-        // iOS 14 puts the contentView in the top of the view hierarchy
-        // This conflicts with the tableView interaction, so we disable it
-        if #available(iOS 14, *) {
-            contentView.isUserInteractionEnabled = false
-        }
+        // Configure header
+        headerLabel.text = Constants.title
+
+        // Configure collection view
+        collectionView.showsHorizontalScrollIndicator = false
+        collectionView.register(ReaderInterestsCollectionViewCell.defaultNib,
+                                forCellWithReuseIdentifier: ReaderInterestsCollectionViewCell.defaultReuseID)
     }
 
-    required init?(coder: NSCoder) {
-        super.init(coder: coder)
+    private func applyStyles() {
+        headerLabel.font = WPStyleGuide.serifFontForTextStyle(.title2)
+
+        containerView.backgroundColor = .listForeground
+        headerLabel.backgroundColor = .listForeground
+        collectionView.backgroundColor = .listForeground
+
+        backgroundColor = .clear
+        contentView.backgroundColor = .clear
+    }
+
+    private struct Constants {
+        static let title = NSLocalizedString("You might like", comment: "A suggestion of topics the user might like")
+
+        static let reuseIdentifier = ReaderInterestsCollectionViewCell.defaultReuseID
+    }
+}
+
+// MARK: - Collection View: Datasource & Delegate
+extension ReaderTopicsCardCell: UICollectionViewDelegate, UICollectionViewDataSource {
+    func collectionView(_ collectionView: UICollectionView, cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
+        guard let cell = collectionView.dequeueReusableCell(withReuseIdentifier: Constants.reuseIdentifier,
+                                                            for: indexPath) as? ReaderInterestsCollectionViewCell else {
+            fatalError("Expected a ReaderInterestsCollectionViewCell for identifier: \(Constants.reuseIdentifier)")
+        }
+
+        let title = data[indexPath.row].title
+
+        ReaderSuggestedTopicsStyleGuide.applySuggestedTopicStyle(label: cell.label,
+                                                                 with: indexPath.row)
+
+        cell.label.text = title
+        cell.label.accessibilityTraits = .button
+
+        // We need to use the calculated size for the height / corner radius because the cell size doesn't change until later
+        let size = sizeForCell(title: title)
+        cell.label.layer.cornerRadius = size.height * 0.5
+
+        return cell
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
-        refreshHorizontalConstraints()
+
+        if traitCollection.hasDifferentColorAppearance(comparedTo: previousTraitCollection) {
+            collectionView.reloadData()
+        }
     }
 
-    func configure(_ topics: [ReaderTagTopic]) {
-        self.topics = topics
-    }
-
-    private func setupTableView() {
-        addSubview(containerView)
-        containerView.translatesAutoresizingMaskIntoConstraints = false
-        pinSubviewToAllEdges(containerView, insets: Constants.containerInsets)
-        containerView.addSubview(tableView)
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([
-            tableView.topAnchor.constraint(equalTo: containerView.topAnchor),
-            tableView.bottomAnchor.constraint(equalTo: containerView.bottomAnchor)
-        ])
-
-        // Constraints for regular horizontal size class
-        regularConstraints = [
-            tableView.leadingAnchor.constraint(equalTo: readableContentGuide.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: readableContentGuide.trailingAnchor)
-        ]
-
-        // Constraints for compact horizontal size class
-        compactConstraints = [
-            tableView.leadingAnchor.constraint(equalTo: containerView.leadingAnchor),
-            tableView.trailingAnchor.constraint(equalTo: containerView.trailingAnchor)
-        ]
-
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: cellIdentifier)
-        tableView.isScrollEnabled = false
-        tableView.dataSource = self
-        tableView.delegate = self
-    }
-
-    private func applyStyles() {
-        containerView.backgroundColor = .listForeground
-
-        tableView.backgroundColor = .listForeground
-        tableView.separatorColor = .placeholderElement
-
-        backgroundColor = .none
-
-        refreshHorizontalConstraints()
-    }
-
-    // Activate and deactivate constraints based on horizontal size class
-    private func refreshHorizontalConstraints() {
-        let isCompact = (traitCollection.horizontalSizeClass == .compact)
-
-        compactConstraints.forEach { $0.isActive = isCompact }
-        regularConstraints.forEach { $0.isActive = !isCompact }
-    }
-
-    private enum Constants {
-        static let containerInsets = UIEdgeInsets(top: 8, left: 0, bottom: 0, right: 0)
-        static let title = NSLocalizedString("You might like", comment: "A suggestion of topics the user might ")
-    }
-}
-
-extension ReaderTopicsCardCell: UITableViewDataSource {
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        return topics.count
-    }
-
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: cellIdentifier, for: indexPath as IndexPath)
-        cell.textLabel?.text = topics[indexPath.row].title
-        cell.accessoryType = .disclosureIndicator
-        cell.separatorInset = UIEdgeInsets.zero
-        cell.backgroundColor = .listForeground
-        return cell
-    }
-
-    func tableView(_ tableView: UITableView, viewForFooterInSection section: Int) -> UIView? {
-        return UIView(frame: .zero)
-    }
-
-    func tableView(_ tableView: UITableView, heightForFooterInSection section: Int) -> CGFloat {
+    func numberOfSections(in collectionView: UICollectionView) -> Int {
         return 1
     }
-}
 
-extension ReaderTopicsCardCell: UITableViewDelegate {
-    func tableView(_ tableView: UITableView, viewForHeaderInSection section: Int) -> UIView? {
-        let header = UIView()
-        let headerTitle = UILabel()
-        headerTitle.text = Constants.title
-        header.addSubview(headerTitle)
-        headerTitle.translatesAutoresizingMaskIntoConstraints = false
-        header.pinSubviewToAllEdges(headerTitle, insets: UIEdgeInsets(top: 10, left: 15, bottom: 10, right: 0))
-        headerTitle.font = WPStyleGuide.serifFontForTextStyle(.title2)
-        return header
+    func collectionView(_ collectionView: UICollectionView, numberOfItemsInSection section: Int) -> Int {
+        return data.count
     }
 
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let topic = topics[indexPath.row]
+    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+        let topic = data[indexPath.row]
+
         delegate?.didSelect(topic: topic)
-        tableView.deselectSelectedRowWithAnimation(true)
     }
 }
 
-private class TopicsTableView: UITableView {
-    override var intrinsicContentSize: CGSize {
-        self.layoutIfNeeded()
-        return self.contentSize
+// MARK: - Collection View: Flow Layout Delegate
+extension ReaderTopicsCardCell: UICollectionViewDelegateFlowLayout {
+    func collectionView(_ collectionView: UICollectionView, layout collectionViewLayout: UICollectionViewLayout, sizeForItemAt indexPath: IndexPath) -> CGSize {
+        return sizeForCell(title: data[indexPath.row].title)
     }
 
-    override var contentSize: CGSize {
-        didSet {
-            self.invalidateIntrinsicContentSize()
-        }
+    // Calculates the dynamic size of the collection view cell based on the provided title
+    private func sizeForCell(title: String) -> CGSize {
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: ReaderSuggestedTopicsStyleGuide.topicFont
+        ]
+
+        let title: NSString = title as NSString
+
+        var size = title.size(withAttributes: attributes)
+        size.height += (CellConstants.marginY * 2)
+
+        // Prevent 1 token from being too long
+        let maxWidth = collectionView.bounds.width * CellConstants.maxWidthMultiplier
+        let width = min(size.width, maxWidth)
+        size.width = width + (CellConstants.marginX * 2)
+
+        return size
+    }
+
+    private struct CellConstants {
+        static let maxWidthMultiplier: CGFloat = 0.8
+        static let marginX: CGFloat = 16
+        static let marginY: CGFloat = 8
     }
 }

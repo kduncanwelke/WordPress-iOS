@@ -12,11 +12,12 @@ struct PostEditorAnalyticsSession {
     var template: String?
     private let startTime = DispatchTime.now().uptimeNanoseconds
 
-    init(editor: Editor, post: AbstractPost) {
+    init(editor: Editor, post: AbstractPost, template: String? = nil) {
         currentEditor = editor
         postType = post.analyticsPostType ?? "unsupported"
         blogType = post.blog.analyticsType.rawValue
         contentType = ContentType(post: post).rawValue
+        self.template = template
     }
 
     mutating func start(unsupportedBlocks: [String] = []) {
@@ -37,7 +38,8 @@ struct PostEditorAnalyticsSession {
     func preview(template: String) {
         let properties = commonProperties.merging([ Property.template: template], uniquingKeysWith: { $1 })
 
-        WPAnalytics.track(.editorSessionTemplatePreview, withProperties: properties)
+        // TODO: remove unused parts of Gutenberg editor preview mode
+//        WPAnalytics.track(.editorSessionTemplatePreview, withProperties: properties)
     }
 
     private func startEventProperties(with unsupportedBlocks: [String]) -> [String: Any] {
@@ -107,6 +109,7 @@ private extension PostEditorAnalyticsSession {
 extension PostEditorAnalyticsSession {
     enum Editor: String {
         case gutenberg
+        case stories
         case classic
         case html
     }

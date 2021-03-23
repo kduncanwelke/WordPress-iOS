@@ -27,17 +27,8 @@ class FollowCommentsService: NSObject {
 
     /// Returns a Bool indicating whether or not the comments on the post can be followed.
     ///
-    /// Older a8c internal P2s do not contain the isWPForTeams flag.
-    /// In case we can't find a flag that marks an old P2 site as being a P2,
-    /// we can assume that blogs in the Reader's Automattic tab are P2s.
-    /// i.e. Posts with a topic of type ReaderTeamTopic.
-    ///
-    /// Note that blogs in the Reader's Automattic tab are only available to Automatticians.
     @objc var canFollowConversation: Bool {
-        guard let blog = post.blog else {
-            return false
-        }
-        return blog.isWPForTeams() || ReaderHelpers.topicType(post.topic) == .team
+        return post.isJetpack || post.isWPCom
     }
 
     /// Fetches the subscription status of the specified post for the current user.
@@ -60,18 +51,18 @@ class FollowCommentsService: NSObject {
     ///   - success: Success block called on a successful fetch.
     ///   - failure: Failure block called if there is any error.
     @objc func toggleSubscribed(_ isSubscribed: Bool,
-                                success: @escaping () -> Void,
+                                success: @escaping (Bool) -> Void,
                                 failure: @escaping (Error?) -> Void) {
-        let successBlock = {
+        let successBlock = { (taskSuccessful: Bool) -> Void in
             let newIsSubscribed = !isSubscribed
             let followAction: FollowCommentsService.FollowAction = newIsSubscribed ? .followed : .unfollowed
 
             var properties = [String: Any]()
             properties[WPAppAnalyticsKeyFollowAction] = followAction.rawValue
             properties[WPAppAnalyticsKeyBlogID] = self.siteID
-            WPAnalytics.track(.readerToggleFollowConversation, properties: properties)
+            WPAnalytics.trackReader(.readerToggleFollowConversation, properties: properties)
 
-            success()
+            success(taskSuccessful)
         }
 
         if isSubscribed {

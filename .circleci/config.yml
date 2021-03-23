@@ -13,12 +13,29 @@ parameters:
   translation_review_lang_id:
     type: string
     default: all-lang
+  beta_build:
+    type: boolean
+    default: false
+  release_build:
+    type: boolean
+    default: false
+
+xcode_version: &xcode_version
+  xcode-version: "12.1.0"
+
+iphone_test_device: &iphone_test_device
+  device: iPhone 11
+  ios-version: "14.1"
+
+ipad_test_device: &ipad_test_device
+  device: iPad Air (4th generation)
+  ios-version: "14.1"
 
 commands:
-  fix-path:
+  fix-image:
     steps:
       - run:
-          name: Fix $PATH
+          name: Fix CI Image
           command: |
             # Add `/usr/local/bin` to the Xcode 11.2 image's $PATH in order to be able to use dependencies
 
@@ -28,12 +45,23 @@ commands:
               echo $PATH
             fi
 
+            chruby ruby-2.6.6
+            gem install bundler
+
 jobs:
   Build Tests:
+    parameters:
+      device:
+        type: string
+        description: The device (e.g. "iPhone 11") to use when compiling the build.
+      ios-version:
+        description: The iOS deployment target (e.g. "13.0") used to compile the build that will be used for testing.
+        type: string
     executor:
       name: ios/default
-      xcode-version: "11.2.1"
+      <<: *xcode_version
     steps:
+      - fix-image
       - git/shallow-checkout
       - ios/install-dependencies:
             bundle-install: true
@@ -42,9 +70,9 @@ jobs:
       - run:
           name: Install Dependencies
           command: rake dependencies
-      - ios/xcodebuild:
-          command: build-for-testing
-          arguments: -workspace 'WordPress.xcworkspace' -scheme 'WordPress' -configuration 'Debug' -sdk iphonesimulator -derivedDataPath DerivedData
+      - run:
+          name: Build for Testing
+          command: bundle exec fastlane build_for_testing device:'<< parameters.device >>' ios-version:'<< parameters.ios-version >>'
       - persist_to_workspace:
           root: ./
           paths:
@@ -52,30 +80,36 @@ jobs:
             - Pods/WordPressMocks
             - vendor/bundle
   Unit Tests:
+    parameters:
+      device:
+        type: string
+        description: The device (e.g. "iPhone 11") to use when running unit tests.
+      ios-version:
+        description: The iOS version (e.g. "14.0") of the device used to run tests.
+        type: string
     executor:
       name: ios/default
-      xcode-version: "11.2.1"
+      <<: *xcode_version
     steps:
-      - fix-path
+      - fix-image
       - git/shallow-checkout
-      - ios/boot-simulator:
-          xcode-version: "11.2.1"
-          device: iPhone 11
       - attach_workspace:
           at: ./
       - run:
           name: Prepare Bundle
           command: bundle --path vendor/bundle
-      - ios/wait-for-simulator
       - run:
           name: Run Unit Tests
-          working_directory: Scripts
-          command: bundle exec fastlane test_without_building xctestrun:DerivedData/Build/Products/WordPress_WordPressUnitTests_iphonesimulator13.2-x86_64.xctestrun destination:"platform=iOS Simulator,id=$SIMULATOR_UDID" try_count:3
+          command: bundle exec fastlane test_without_building name:WordPressUnitTests try_count:3 device:'<< parameters.device >>' ios-version:'<< parameters.ios-version >>'
       - ios/save-xcodebuild-artifacts:
           result-bundle-path: build/results
   UI Tests:
     parameters:
       device:
+        type: string
+        description: The device (e.g. "iPhone 11") to use when running tests.
+      ios-version:
+        description: The iOS version (e.g. "14.0") of the device used to run tests.
         type: string
       post-to-slack:
         description: Post to Slack when tests fail. SLACK_WEBHOOK ENV variable must be set.
@@ -83,13 +117,10 @@ jobs:
         default: false
     executor:
       name: ios/default
-      xcode-version: "11.2.1"
+      <<: *xcode_version
     steps:
-      - fix-path
+      - fix-image
       - git/shallow-checkout
-      - ios/boot-simulator:
-          xcode-version: "11.2.1"
-          device: << parameters.device >>
       - attach_workspace:
           at: ./
       - run:
@@ -99,11 +130,9 @@ jobs:
           name: Run mocks
           command: ./Pods/WordPressMocks/scripts/start.sh 8282
           background: true
-      - ios/wait-for-simulator
       - run:
           name: Run UI Tests
-          working_directory: Scripts
-          command: bundle exec fastlane test_without_building xctestrun:DerivedData/Build/Products/WordPress_WordPressUITests_iphonesimulator13.2-x86_64.xctestrun destination:"platform=iOS Simulator,id=$SIMULATOR_UDID" try_count:3
+          command: bundle exec fastlane test_without_building name:WordPressUITests try_count:3 device:'<< parameters.device >>' ios-version:'<< parameters.ios-version >>'
       - ios/save-xcodebuild-artifacts:
           result-bundle-path: build/results
       - when:
@@ -113,9 +142,8 @@ jobs:
                 name: Prepare Slack message
                 when: always
                 command: |
-                  # Get the name of the device that is running. Using "<< parameters.device >>" can cause slack formatting errors.
-                  DEVICE_NAME=$(xcrun simctl list -j | jq -r --arg UDID $SIMULATOR_UDID '.devices[] | .[] | select(.udid == "\($UDID)") | .name')
-                  echo "export SLACK_FAILURE_MESSAGE=':red_circle: WordPress iOS UI tests failed on ${DEVICE_NAME} in \`${CIRCLE_BRANCH}\` branch by ${CIRCLE_USERNAME}.\n\nPlease reach out in #platform9 if you think this failure is not caused by your changes, so we can investigate.'" >> $BASH_ENV
+                  # Get the name of the device that is running.
+                  echo "export SLACK_FAILURE_MESSAGE=':red_circle: WordPress iOS UI tests failed on << parameters.device >> in \`${CIRCLE_BRANCH}\` branch by ${CIRCLE_USERNAME}.\n\nPlease reach out in #platform9 if you think this failure is not caused by your changes, so we can investigate.'" >> $BASH_ENV
             - slack/status:
                 fail_only: true
                 include_job_number_field: false
@@ -124,8 +152,9 @@ jobs:
   Installable Build:
     executor:
       name: ios/default
-      xcode-version: "11.2.1"
+      <<: *xcode_version
     steps:
+      - fix-image
       - git/shallow-checkout
       - ios/install-dependencies:
             bundle-install: true
@@ -136,23 +165,23 @@ jobs:
           command: bundle exec fastlane run configure_apply
       - run:
           name: Build
-          working_directory: Scripts
           command: "bundle exec fastlane build_and_upload_installable_build build_number:$CIRCLE_BUILD_NUM"
       - run:
           name: Prepare Artifacts
           command: |
             mkdir -p Artifacts
-            mv "Scripts/fastlane/comment.json" "Artifacts/comment.json"
+            mv "fastlane/comment.json" "Artifacts/comment.json"
       - store_artifacts:
           path: Artifacts
           destination: Artifacts
   Release Build:
-    executor: 
+    executor:
       name: ios/default
-      xcode-version: "11.2.1"
+      <<: *xcode_version
     environment:
       HOMEBREW_NO_AUTO_UPDATE: 1
     steps:
+      - fix-image
       - run:
           name: Setup Notifications
           command: |
@@ -162,25 +191,37 @@ jobs:
             bundle-install: true
             pod-install: true
             cache-prefix: cache-prefix-{{ checksum ".circleci/cache-version" }}
-      - run: 
+      - run:
           name: Copy Secrets
           command: bundle exec fastlane run configure_apply
-      - run: 
+      - run:
           name: Install other tools
           command: |
-            brew unlink python@2
             brew install imagemagick
             brew install ghostscript
             curl -sL https://sentry.io/get-cli/ | bash
       - run:
-          name: Build
-          working_directory: Scripts
+          name: Setup notifications
           command: |
-            APP_VERSION=$(cat ../config/Version.Public.xcconfig | grep "^VERSION_LONG" | cut -d "=" -f2)
+            APP_VERSION=$(cat config/Version.Public.xcconfig | grep "^VERSION_LONG" | cut -d "=" -f2)
             echo "export SLACK_FAILURE_MESSAGE=':red_circle: Build for WordPress iOS $APP_VERSION failed!'" >> $BASH_ENV
-            echo "export SLACK_SUCCESS_MESSAGE=':tada: WordPress iOS $APP_VERSION has been deployed!'" >> $BASH_ENV 
-            bundle exec fastlane build_and_upload_release skip_confirm:true
-          no_output_timeout: 60m
+            echo "export SLACK_SUCCESS_MESSAGE=':tada: WordPress iOS $APP_VERSION has been deployed!'" >> $BASH_ENV
+      - when:
+          condition: << pipeline.parameters.beta_build >>
+          steps:
+            - run:
+                name: Build
+                command: |
+                  bundle exec fastlane build_and_upload_beta_release skip_confirm:true create_gh_release:true
+                no_output_timeout: 60m
+      - when:
+          condition: << pipeline.parameters.release_build >>
+          steps:
+            - run:
+                name: Build
+                command: |
+                  bundle exec fastlane build_and_upload_stable_release skip_confirm:true create_gh_release:true
+                no_output_timeout: 60m
       - slack/status:
           include_job_number_field: false
           include_project_field: false
@@ -189,60 +230,59 @@ jobs:
           failure_message: '${SLACK_FAILURE_MESSAGE}'
           success_message: '${SLACK_SUCCESS_MESSAGE}'
   translation-review-build:
-    executor: 
+    executor:
       name: ios/default
-      xcode-version: "11.2.1"
+      <<: *xcode_version
     environment:
       HOMEBREW_NO_AUTO_UPDATE: 1
     steps:
+      - fix-image
       - git/shallow-checkout
       - ios/install-dependencies:
             bundle-install: true
             pod-install: true
             cache-prefix: cache-prefix-{{ checksum ".circleci/cache-version" }}
-      - run: 
+      - run:
           name: Copy Secrets
           command: bundle exec fastlane run configure_apply
-      - run: 
+      - run:
           name: Install other tools
           command: |
-            brew unlink python@2
             brew install imagemagick
             brew install ghostscript
             curl -sL https://sentry.io/get-cli/ | bash
       - run:
           name: Build
-          working_directory: Scripts
-          command: | 
-            orig_version=`cat ../config/Version.internal.xcconfig | grep VERSION_SHORT | cut -d'=' -f2`
-            sed -i '' "$(awk '/^VERSION_SHORT/{ print NR; exit }' "../config/Version.internal.xcconfig")s/=.*/="${orig_version}"-`date +"%Y%d%m"`-"${CIRCLE_BUILD_NUM}"/" "../config/Version.internal.xcconfig"
-            bundle exec fastlane build_for_translation_review
+          command: |
+            orig_version=`cat config/Version.internal.xcconfig | grep VERSION_SHORT | cut -d'=' -f2`
+            sed -i '' "$(awk '/^VERSION_SHORT/{ print NR; exit }' "config/Version.internal.xcconfig")s/=.*/="${orig_version}"-`date +"%Y%d%m"`-"${CIRCLE_BUILD_NUM}"/" "config/Version.internal.xcconfig"
 
             VERSION_NAME="all-lang-build-${CIRCLE_BUILD_NUM}"
             echo "export VERSION_NAME=$VERSION_NAME" >> $BASH_ENV
 
-            mkdir -p ../Artifacts
-            mv /var/tmp/Debug-iphonesimulator/WordPress.zip "../Artifacts/WordPress-${VERSION_NAME}.zip"
+            bundle exec fastlane build_for_translation_review version_name:$VERSION_NAME
           no_output_timeout: 60m
-      - run: 
-          name: Upload APP
-          command: |
-            curl --http1.1 https://${APPET_TOKEN}@api.appetize.io/v1/apps/${APPET_APPID} -F "file=@Artifacts/WordPress-${VERSION_NAME}.zip" -F "platform=ios"
       - store_artifacts:
           path: Artifacts
           destination: Artifacts
 
 workflows:
   wordpress_ios:
-    unless: << pipeline.parameters.translation_review_build >>
+    when:
+      and:
+        - not: << pipeline.parameters.translation_review_build >>
+        - not: << pipeline.parameters.beta_build >>
+        - not: << pipeline.parameters.release_build >>
     jobs:
-      - Build Tests
+      - Build Tests:
+          <<: *iphone_test_device
       - Unit Tests:
+          <<: *iphone_test_device
           requires: [ "Build Tests" ]
       # Always run UI tests on develop and release branches
       - UI Tests:
           name: UI Tests (iPhone 11)
-          device: iPhone 11
+          <<: *iphone_test_device
           post-to-slack: true
           requires: [ "Build Tests" ]
           filters:
@@ -251,8 +291,8 @@ workflows:
                 - develop
                 - /^release.*/
       - UI Tests:
-          name: UI Tests (iPad Air 3rd generation)
-          device: iPad Air \\(3rd generation\\)
+          name: UI Tests (iPad Air 4th generation)
+          <<: *ipad_test_device
           post-to-slack: true
           requires: [ "Build Tests" ]
           filters:
@@ -271,14 +311,18 @@ workflows:
                 - /^release.*/
       - UI Tests:
           name: UI Tests (iPhone 11)
-          device: iPhone 11
+          <<: *iphone_test_device
           requires: [ "Optional Tests" ]
       - UI Tests:
-          name: UI Tests (iPad Air 3rd generation)
-          device: iPad Air \\(3rd generation\\)
+          name: UI Tests (iPad Air 4th generation)
+          <<: *ipad_test_device
           requires: [ "Optional Tests" ]
   Installable Build:
-    unless: << pipeline.parameters.translation_review_build >>
+    when:
+      and:
+        - not: << pipeline.parameters.translation_review_build >>
+        - not: << pipeline.parameters.beta_build >>
+        - not: << pipeline.parameters.release_build >>
     jobs:
       - Hold:
           type: approval
@@ -286,21 +330,16 @@ workflows:
             branches:
               ignore: /pull\/[0-9]+/
       - Installable Build:
-          requires: [Hold]  
+          requires: [Hold]
           filters:
             branches:
               ignore: /pull\/[0-9]+/
   Release Build:
-    unless: << pipeline.parameters.translation_review_build >>
+    when:
+      or: [ << pipeline.parameters.beta_build >>, << pipeline.parameters.release_build >> ]
     jobs:
-      - Release Build: 
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /^\d.\d?(.\d)?(.\d)?(.\d{1,4})$/
+      - Release Build
   Translation Review Build:
     when: << pipeline.parameters.translation_review_build >>
     jobs:
       - translation-review-build
-

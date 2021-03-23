@@ -8,6 +8,11 @@ import Gridicons
 @objc
 class WordPressAuthenticationManager: NSObject {
     static var isPresentingSignIn = false
+    private let windowManager: WindowManager
+
+    init(windowManager: WindowManager) {
+        self.windowManager = windowManager
+    }
 
     /// Support is only available to the WordPress iOS App. Our Authentication Framework doesn't have direct access.
     /// We'll setup a mechanism to relay the Support event back to the Authenticator.
@@ -38,7 +43,11 @@ class WordPressAuthenticationManager: NSObject {
                                                                 showLoginOptions: true,
                                                                 enableSignInWithApple: enableSignInWithApple,
                                                                 enableSignupWithGoogle: true,
-                                                                enableUnifiedAuth: FeatureFlag.unifiedAuth.enabled)
+                                                                enableUnifiedAuth: true,
+                                                                enableUnifiedCarousel: FeatureFlag.unifiedPrologueCarousel.enabled)
+
+        let prologueVC: UIViewController? =  FeatureFlag.unifiedPrologueCarousel.enabled ? UnifiedPrologueViewController() : nil
+        let statusBarStyle: UIStatusBarStyle = FeatureFlag.unifiedPrologueCarousel.enabled ? .default : .lightContent
 
         let style = WordPressAuthenticatorStyle(primaryNormalBackgroundColor: .primaryButtonBackground,
                                                 primaryNormalBorderColor: nil,
@@ -53,6 +62,7 @@ class WordPressAuthenticationManager: NSObject {
                                                 primaryTitleColor: .white,
                                                 secondaryTitleColor: .text,
                                                 disabledTitleColor: .neutral(.shade20),
+                                                disabledButtonActivityIndicatorColor: .text,
                                                 textButtonColor: .primary,
                                                 textButtonHighlightColor: .primaryDark,
                                                 instructionColor: .text,
@@ -65,7 +75,9 @@ class WordPressAuthenticationManager: NSObject {
                                                 navBarBadgeColor: .accent(.shade20),
                                                 navBarBackgroundColor: UIColor(light: .brand, dark: .gray(.shade100)),  // NEWBARS - This is temporary while we support old style nav bars in some of the auth flows
                                                 prologueBackgroundColor: .primary,
-                                                prologueTitleColor: .textInverted)
+                                                prologueTitleColor: .textInverted,
+                                                prologueTopContainerChildViewController: prologueVC,
+                                                statusBarStyle: statusBarStyle)
 
         let unifiedStyle = WordPressAuthenticatorUnifiedStyle(borderColor: .divider,
                                                               errorColor: .error,
@@ -108,7 +120,7 @@ extension WordPressAuthenticationManager {
     ///
     @objc
     class func showSigninForWPComFixingAuthToken() {
-        guard let presenter = UIApplication.shared.keyWindow?.rootViewController else {
+        guard let presenter = UIApplication.shared.mainWindow?.rootViewController else {
             assertionFailure()
             return
         }
@@ -158,6 +170,12 @@ extension WordPressAuthenticationManager: WordPressAuthenticatorDelegate {
     /// Indicates whether if the Support Action should be enabled, or not.
     ///
     var supportActionEnabled: Bool {
+        return true
+    }
+
+    /// Indicates whether a link to WP.com TOS should be available, or not.
+    ///
+    var wpcomTermsOfServiceEnabled: Bool {
         return true
     }
 
@@ -221,8 +239,9 @@ extension WordPressAuthenticationManager: WordPressAuthenticatorDelegate {
     ///     - site: passes in the site information to the delegate method.
     ///     - onCompletion: Closure to be executed on completion.
     ///
-    func shouldPresentUsernamePasswordController(for siteInfo: WordPressComSiteInfo?, onCompletion: @escaping (Error?, Bool) -> Void) {
-        onCompletion(nil, true)
+    func shouldPresentUsernamePasswordController(for siteInfo: WordPressComSiteInfo?, onCompletion: @escaping (WordPressAuthenticatorResult) -> Void) {
+        let result: WordPressAuthenticatorResult = .presentPasswordController(value: true)
+        onCompletion(result)
     }
 
     /// Presents the Login Epilogue, in the specified NavigationController.
@@ -240,7 +259,11 @@ extension WordPressAuthenticationManager: WordPressAuthenticatorDelegate {
         }
 
         epilogueViewController.credentials = credentials
-        epilogueViewController.onDismiss = onDismiss
+        epilogueViewController.onDismiss = { [weak self] in
+            onDismiss()
+
+            self?.windowManager.dismissFullscreenSignIn()
+        }
 
         navigationController.pushViewController(epilogueViewController, animated: true)
     }
@@ -255,11 +278,12 @@ extension WordPressAuthenticationManager: WordPressAuthenticatorDelegate {
 
         epilogueViewController.credentials = credentials
         epilogueViewController.socialService = service
-        epilogueViewController.onContinue = {
+        epilogueViewController.onContinue = { [weak self] in
             if PostSignUpInterstitialViewController.shouldDisplay() {
-                self.presentPostSignUpInterstitial(in: navigationController)
+                self?.presentPostSignUpInterstitial(in: navigationController)
             } else {
-                navigationController.dismiss(animated: true)
+                // Signup is only ever shown in fullscreen
+                self?.windowManager.dismissFullscreenSignIn()
             }
 
             UserDefaults.standard.set(false, forKey: UserDefaults.standard.welcomeNotificationSeenKey)
@@ -327,6 +351,22 @@ extension WordPressAuthenticationManager: WordPressAuthenticatorDelegate {
         }
     }
 
+    /// Indicates if the given Auth error should be handled by the host app.
+    ///
+    func shouldHandleError(_ error: Error) -> Bool {
+        // Here for protocol compliance.
+        return false
+    }
+
+    /// Handles the given error.
+    /// Called if `shouldHandleError` is true.
+    ///
+    func handleError(_ error: Error, onCompletion: @escaping (UIViewController) -> Void) {
+        // Here for protocol compliance.
+        let vc = UIViewController()
+        onCompletion(vc)
+    }
+
     /// Tracks a given Analytics Event.
     ///
     func track(event: WPAnalyticsStat) {
@@ -351,9 +391,37 @@ extension WordPressAuthenticationManager: WordPressAuthenticatorDelegate {
 //
 private extension WordPressAuthenticationManager {
     /// Displays the post sign up interstitial if needed, if it's not displayed
-    private func presentPostSignUpInterstitial(in navigationController: UINavigationController, onDismiss: (() -> Void)? = nil) {
+    private func presentPostSignUpInterstitial(
+        in navigationController: UINavigationController,
+        onDismiss: (() -> Void)? = nil) {
+
         let viewController = PostSignUpInterstitialViewController()
-        viewController.onDismiss = onDismiss
+        let windowManager = self.windowManager
+
+        viewController.dismiss = { dismissAction in
+            let completion: (() -> Void)?
+
+            switch dismissAction {
+            case .none:
+                completion = nil
+            case .addSelfHosted:
+                completion = {
+                    NotificationCenter.default.post(name: .addSelfHosted, object: nil)
+                }
+            case .createSite:
+                completion = {
+                    NotificationCenter.default.post(name: .createSite, object: nil)
+                }
+            }
+
+            if windowManager.isShowingFullscreenSignIn {
+                windowManager.dismissFullscreenSignIn(completion: completion)
+            } else {
+                navigationController.dismiss(animated: true, completion: completion)
+            }
+
+            onDismiss?()
+        }
 
         navigationController.pushViewController(viewController, animated: true)
     }

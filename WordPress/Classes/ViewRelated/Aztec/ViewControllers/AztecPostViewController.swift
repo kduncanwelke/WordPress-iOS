@@ -463,6 +463,20 @@ class AztecPostViewController: UIViewController, PostEditor {
     ///
     private var mediaPreviewHelper: MediaPreviewHelper? = nil
 
+    private let database: KeyValueDatabase = UserDefaults()
+    private enum Key {
+        static let classicDeprecationNoticeHasBeenShown = "kClassicDeprecationNoticeHasBeenShown"
+    }
+
+    private var hasNoticeBeenShown: Bool {
+        get {
+            database.bool(forKey: Key.classicDeprecationNoticeHasBeenShown)
+        }
+        set {
+            database.set(newValue, forKey: Key.classicDeprecationNoticeHasBeenShown)
+        }
+    }
+
     // MARK: - Initializers
 
     required init(
@@ -534,6 +548,41 @@ class AztecPostViewController: UIViewController, PostEditor {
         if !editorSession.started {
             editorSession.start()
         }
+
+        if shouldShowDeprecationNotice() {
+            showDeprecationNotice()
+            hasNoticeBeenShown = true
+        }
+    }
+
+    private func shouldShowDeprecationNotice() -> Bool {
+        return hasNoticeBeenShown == false &&
+            (post.postTitle ?? "").isEmpty &&
+            (post.content ?? "").isEmpty
+    }
+
+    private func showDeprecationNotice() {
+        let okButton: (title: String, handler: FancyAlertViewController.FancyAlertButtonHandler?) =
+        (
+            title: NSLocalizedString("Dismiss", comment: "The title of a button to close the classic editor deprecation notice alert dialog."),
+            handler: { alert, _ in
+                alert.dismiss(animated: true, completion: nil)
+            }
+        )
+
+        let config = FancyAlertViewController.Config(
+            titleText: NSLocalizedString("Try the new Block Editor", comment: "The title of a notice telling users that the classic editor is deprecated and will be removed in a future version of the app."),
+            bodyText: NSLocalizedString("We’ll be removing the classic editor for new posts soon, but this won’t affect editing any of your existing posts or pages. Get a head start by enabling the Block Editor now in site settings.", comment: "The message of a notice telling users that the classic editor is deprecated and will be removed in a future version of the app."),
+            headerImage: nil,
+            dividerPosition: .top,
+            defaultButton: okButton,
+            cancelButton: nil
+        )
+
+        let alert = FancyAlertViewController.controllerWithConfiguration(configuration: config)
+        alert.modalPresentationStyle = .custom
+        alert.transitioningDelegate = self
+        present(alert, animated: true)
     }
 
 
@@ -918,22 +967,22 @@ class AztecPostViewController: UIViewController, PostEditor {
 
         if richTextView.isFirstResponder {
             return [
-                UIKeyCommand(input: "B", modifierFlags: .command, action: #selector(toggleBold), discoverabilityTitle: NSLocalizedString("Bold", comment: "Discoverability title for bold formatting keyboard shortcut.")),
-                UIKeyCommand(input: "I", modifierFlags: .command, action: #selector(toggleItalic), discoverabilityTitle: NSLocalizedString("Italic", comment: "Discoverability title for italic formatting keyboard shortcut.")),
-                UIKeyCommand(input: "S", modifierFlags: [.command], action: #selector(toggleStrikethrough), discoverabilityTitle: NSLocalizedString("Strikethrough", comment: "Discoverability title for strikethrough formatting keyboard shortcut.")),
-                UIKeyCommand(input: "U", modifierFlags: .command, action: #selector(toggleUnderline(_:)), discoverabilityTitle: NSLocalizedString("Underline", comment: "Discoverability title for underline formatting keyboard shortcut.")),
-                UIKeyCommand(input: "Q", modifierFlags: [.command, .alternate], action: #selector(toggleBlockquote), discoverabilityTitle: NSLocalizedString("Block Quote", comment: "Discoverability title for block quote keyboard shortcut.")),
-                UIKeyCommand(input: "K", modifierFlags: .command, action: #selector(toggleLink), discoverabilityTitle: NSLocalizedString("Insert Link", comment: "Discoverability title for insert link keyboard shortcut.")),
-                UIKeyCommand(input: "M", modifierFlags: [.command, .alternate], action: #selector(presentMediaPickerWasPressed), discoverabilityTitle: NSLocalizedString("Insert Media", comment: "Discoverability title for insert media keyboard shortcut.")),
-                UIKeyCommand(input: "U", modifierFlags: [.command, .alternate], action: #selector(toggleUnorderedList), discoverabilityTitle: NSLocalizedString("Bullet List", comment: "Discoverability title for bullet list keyboard shortcut.")),
-                UIKeyCommand(input: "O", modifierFlags: [.command, .alternate], action: #selector(toggleOrderedList), discoverabilityTitle: NSLocalizedString("Numbered List", comment: "Discoverability title for numbered list keyboard shortcut.")),
-                UIKeyCommand(input: "H", modifierFlags: [.command, .shift], action: #selector(toggleEditingMode), discoverabilityTitle: NSLocalizedString("Toggle HTML Source ", comment: "Discoverability title for HTML keyboard shortcut."))
+                UIKeyCommand(action: #selector(toggleBold), input: "B", modifierFlags: .command, discoverabilityTitle: NSLocalizedString("Bold", comment: "Discoverability title for bold formatting keyboard shortcut.")),
+                UIKeyCommand(action: #selector(toggleItalic), input: "I", modifierFlags: .command, discoverabilityTitle: NSLocalizedString("Italic", comment: "Discoverability title for italic formatting keyboard shortcut.")),
+                UIKeyCommand(action: #selector(toggleStrikethrough), input: "S", modifierFlags: [.command], discoverabilityTitle: NSLocalizedString("Strikethrough", comment: "Discoverability title for strikethrough formatting keyboard shortcut.")),
+                UIKeyCommand(action: #selector(toggleUnderline(_:)), input: "U", modifierFlags: .command, discoverabilityTitle: NSLocalizedString("Underline", comment: "Discoverability title for underline formatting keyboard shortcut.")),
+                UIKeyCommand(action: #selector(toggleBlockquote), input: "Q", modifierFlags: [.command, .alternate], discoverabilityTitle: NSLocalizedString("Block Quote", comment: "Discoverability title for block quote keyboard shortcut.")),
+                UIKeyCommand(action: #selector(toggleLink), input: "K", modifierFlags: .command, discoverabilityTitle: NSLocalizedString("Insert Link", comment: "Discoverability title for insert link keyboard shortcut.")),
+                UIKeyCommand(action: #selector(presentMediaPickerWasPressed), input: "M", modifierFlags: [.command, .alternate], discoverabilityTitle: NSLocalizedString("Insert Media", comment: "Discoverability title for insert media keyboard shortcut.")),
+                UIKeyCommand(action: #selector(toggleUnorderedList), input: "U", modifierFlags: [.command, .alternate], discoverabilityTitle: NSLocalizedString("Bullet List", comment: "Discoverability title for bullet list keyboard shortcut.")),
+                UIKeyCommand(action: #selector(toggleOrderedList), input: "O", modifierFlags: [.command, .alternate], discoverabilityTitle: NSLocalizedString("Numbered List", comment: "Discoverability title for numbered list keyboard shortcut.")),
+                UIKeyCommand(action: #selector(toggleEditingMode), input: "H", modifierFlags: [.command, .shift], discoverabilityTitle: NSLocalizedString("Toggle HTML Source ", comment: "Discoverability title for HTML keyboard shortcut."))
             ]
         }
 
         if htmlTextView.isFirstResponder {
             return [
-                UIKeyCommand(input: "H", modifierFlags: [.command, .shift], action: #selector(toggleEditingMode), discoverabilityTitle: NSLocalizedString("Toggle HTML Source ", comment: "Discoverability title for HTML keyboard shortcut."))
+                UIKeyCommand(action: #selector(toggleEditingMode), input: "H", modifierFlags: [.command, .shift], discoverabilityTitle: NSLocalizedString("Toggle HTML Source ", comment: "Discoverability title for HTML keyboard shortcut."))
             ]
         }
 
@@ -1108,7 +1157,7 @@ extension AztecPostViewController {
         guard let action = self.postEditorStateContext.secondaryPublishButtonAction else {
             // If the user tapped on the secondary publish action button, it means we should have a secondary publish action.
             let error = NSError(domain: errorDomain, code: ErrorCode.expectedSecondaryAction.rawValue, userInfo: nil)
-            CrashLogging.logError(error)
+            WordPressAppDelegate.crashLogging?.logError(error)
             return
         }
 
@@ -1260,7 +1309,9 @@ private extension AztecPostViewController {
             }
         }
 
-        alert.addDefaultActionWithTitle(MoreSheetAlert.postSettingsTitle) { [unowned self] _ in
+        let settingsTitle = self.post is Page ? MoreSheetAlert.pageSettingsTitle : MoreSheetAlert.postSettingsTitle
+
+        alert.addDefaultActionWithTitle(settingsTitle) { [unowned self] _ in
             self.displayPostSettings()
         }
 
@@ -2305,7 +2356,7 @@ extension AztecPostViewController {
         var keyboardHeight: CGFloat
 
         // Let's assume a sensible default for the keyboard height based on orientation
-        let keyboardFrameRatioDefault = UIApplication.shared.statusBarOrientation.isPortrait ? Constants.mediaPickerKeyboardHeightRatioPortrait : Constants.mediaPickerKeyboardHeightRatioLandscape
+        let keyboardFrameRatioDefault = UIApplication.shared.currentStatusBarOrientation.isPortrait ? Constants.mediaPickerKeyboardHeightRatioPortrait : Constants.mediaPickerKeyboardHeightRatioLandscape
         let keyboardHeightDefault = (keyboardFrameRatioDefault * UIScreen.main.bounds.height)
 
         // we need to make an assumption the hardware keyboard is attached based on
@@ -2889,7 +2940,7 @@ extension AztecPostViewController {
         alertController.popoverPresentationController?.sourceRect = CGRect(origin: position, size: CGSize(width: 1, height: 1))
         alertController.popoverPresentationController?.permittedArrowDirections = .any
         present(alertController, animated: true, completion: { () in
-            UIMenuController.shared.setMenuVisible(false, animated: false)
+            UIMenuController.shared.hideMenu()
         })
     }
 
@@ -3396,6 +3447,7 @@ extension AztecPostViewController {
         static let previewTitle = NSLocalizedString("Preview", comment: "Displays the Post Preview Interface")
         static let historyTitle = NSLocalizedString("History", comment: "Displays the History screen from the editor's alert sheet")
         static let postSettingsTitle = NSLocalizedString("Post Settings", comment: "Name of the button to open the post settings")
+        static let pageSettingsTitle = NSLocalizedString("Page Settings", comment: "Name of the button to open the page settings")
         static let keepEditingTitle = NSLocalizedString("Keep Editing", comment: "Goes back to editing the post.")
         static let accessibilityIdentifier = "MoreSheetAccessibilityIdentifier"
     }

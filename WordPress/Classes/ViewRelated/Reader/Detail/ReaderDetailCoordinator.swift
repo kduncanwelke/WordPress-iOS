@@ -13,6 +13,12 @@ class ReaderDetailCoordinator {
         }
     }
 
+    /// Used to determine if block and report are shown in the options menu.
+    var readerTopic: ReaderAbstractTopic?
+
+    /// Used for analytics
+    var remoteSimplePost: RemoteReaderSimplePost?
+
     /// A post URL to be loaded and be displayed
     var postURL: URL?
 
@@ -91,18 +97,27 @@ class ReaderDetailCoordinator {
         postInUse(false)
     }
 
-    /// Start the cordinator
+    /// Start the coordinator
     ///
     func start() {
         view?.showLoading()
 
-        if let post = post {
+        if post != nil {
             renderPostAndBumpStats()
-            view?.show(title: post.postTitle)
         } else if let siteID = siteID, let postID = postID, let isFeed = isFeed {
             fetch(postID: postID, siteID: siteID, isFeed: isFeed)
         } else if let postURL = postURL {
             fetch(postURL)
+        }
+    }
+
+    /// Fetch related posts for the current post
+    ///
+    func fetchRelatedPosts(for post: ReaderPost) {
+        service.fetchRelatedPosts(for: post) { [weak self] relatedPosts in
+            self?.view?.renderRelatedPosts(relatedPosts)
+        } failure: { error in
+            DDLogError("Error fetching related posts for detail: \(String(describing: error?.localizedDescription))")
         }
     }
 
@@ -114,6 +129,8 @@ class ReaderDetailCoordinator {
         }
 
         sharingController.shareReaderPost(post, fromView: anchorView, inViewController: view)
+
+        WPAnalytics.trackReader(.readerSharedItem)
     }
 
     /// Set a postID, siteID and isFeed
@@ -167,12 +184,15 @@ class ReaderDetailCoordinator {
     /// Open the postURL in a separated view controller
     ///
     func openInBrowser() {
-        guard let postURL = postURL else {
+        guard
+            let permaLink = post?.permaLink,
+            let postURL = URL(string: permaLink)
+        else {
             return
         }
 
+        WPAnalytics.trackReader(.readerArticleVisited)
         presentWebViewController(postURL)
-        viewController?.navigationController?.popViewController(animated: true)
     }
 
     /// Some posts have content from private sites that need special cookies
@@ -205,7 +225,6 @@ class ReaderDetailCoordinator {
                           success: { [weak self] post in
                             self?.post = post
                             self?.renderPostAndBumpStats()
-                            self?.view?.show(title: post?.postTitle)
         }, failure: { [weak self] _ in
             self?.postURL == nil ? self?.view?.showError() : self?.view?.showErrorWithWebAction()
             self?.reportPostLoadFailure()
@@ -222,7 +241,6 @@ class ReaderDetailCoordinator {
                           success: { [weak self] post in
                             self?.post = post
                             self?.renderPostAndBumpStats()
-                            self?.view?.show(title: post?.postTitle)
         }, failure: { [weak self] error in
             DDLogError("Error fetching post for detail: \(String(describing: error?.localizedDescription))")
             self?.postURL == nil ? self?.view?.showError() : self?.view?.showErrorWithWebAction()
@@ -239,6 +257,22 @@ class ReaderDetailCoordinator {
 
         bumpStats()
         bumpPageViewsForPost()
+        markPostAsSeen()
+    }
+
+    private func markPostAsSeen() {
+        guard let post = post,
+              let context = post.managedObjectContext,
+              !post.isSeen else {
+            return
+        }
+
+        let postService = ReaderPostService(managedObjectContext: context)
+        postService.toggleSeen(for: post, success: {
+            NotificationCenter.default.post(name: .ReaderPostSeenToggled,
+                                            object: nil,
+                                            userInfo: [ReaderNotificationKeys.post: post])
+        }, failure: nil)
     }
 
     /// If the loaded URL contains a hash/anchor then jump to that spot in the post content
@@ -269,26 +303,31 @@ class ReaderDetailCoordinator {
         WPAppAnalytics.track(.readerSitePreviewed, withProperties: properties)
     }
 
-    /// Show a menu with options forthe current post's site
+    /// Show a menu with options for the current post's site
     ///
     private func showMenu(_ anchorView: UIView) {
         guard let post = post,
-            let context = post.managedObjectContext else {
+            let context = post.managedObjectContext,
+            let viewController = viewController else {
             return
         }
 
-        guard post.isFollowing else {
-            ReaderPostMenu.showMenuForPost(post, fromView: anchorView, inViewController: viewController)
-            return
-        }
+        ReaderMenuAction(logged: ReaderHelpers.isLoggedIn()).execute(post: post,
+                                                                     context: context,
+                                                                     readerTopic: readerTopic,
+                                                                     anchor: anchorView,
+                                                                     vc: viewController,
+                                                                     source: ReaderPostMenuSource.details)
 
-        let service: ReaderTopicService = ReaderTopicService(managedObjectContext: context)
-        let siteTopic: ReaderSiteTopic? = service.findSiteTopic(withSiteID: post.siteID)
-
-        ReaderPostMenu.showMenuForPost(post, topic: siteTopic, fromView: anchorView, inViewController: viewController)
+        WPAnalytics.trackReader(.readerArticleDetailMoreTapped)
     }
 
-    /// Show a list with posts contianing this tag
+    private func showTopic(_ topic: String) {
+        let controller = ReaderStreamViewController.controllerWithTagSlug(topic)
+        viewController?.navigationController?.pushViewController(controller, animated: true)
+    }
+
+    /// Show a list with posts containing this tag
     ///
     private func showTag() {
         guard let post = post else {
@@ -305,9 +344,10 @@ class ReaderDetailCoordinator {
     /// Given a URL presents it the best way possible.
     ///
     /// If it's an image, shows it fullscreen.
-    /// If it's a fullscreen Story link, open it in the webview controller
+    /// If it's a fullscreen Story link, open it in the webview controller.
     /// If it's a post, open a new detail screen.
-    /// If it's a regular URL, open it in the webview controller
+    /// If it's a link protocol (tel: / sms: / mailto:), take the correct action.
+    /// If it's a regular URL, open it in the webview controller.
     ///
     /// - Parameter url: the URL to be handled
     func handle(_ url: URL) {
@@ -327,6 +367,8 @@ class ReaderDetailCoordinator {
             readerLinkRouter.handle(url: url, shouldTrack: false, source: viewController)
         } else if url.isWordPressDotComPost {
             presentReaderDetail(url)
+        } else if url.isLinkProtocol {
+            readerLinkRouter.handle(url: url, shouldTrack: false, source: viewController)
         } else {
             presentWebViewController(url)
         }
@@ -359,6 +401,23 @@ class ReaderDetailCoordinator {
         viewController?.present(controller, animated: true)
     }
 
+    private func followSite() {
+        guard let post = post else {
+            return
+        }
+
+        ReaderFollowAction().execute(with: post,
+                                     context: coreDataStack.mainContext,
+                                     completion: { [weak self] in
+                                        ReaderHelpers.dispatchToggleFollowSiteMessage(post: post, success: true)
+                                         self?.view?.updateHeader()
+                                     },
+                                     failure: { [weak self] _ in
+                                        ReaderHelpers.dispatchToggleFollowSiteMessage(post: post, success: false)
+                                         self?.view?.updateHeader()
+                                     })
+    }
+
     /// Given a URL presents it in a new Reader detail screen
     ///
     private func presentReaderDetail(_ url: URL) {
@@ -380,7 +439,7 @@ class ReaderDetailCoordinator {
         configuration.authenticateWithDefaultAccount()
         configuration.addsWPComReferrer = true
         let controller = WebViewControllerFactory.controller(configuration: configuration)
-        let navController = UINavigationController(rootViewController: controller)
+        let navController = LightNavigationController(rootViewController: controller)
         viewController?.present(navController, animated: true)
     }
 
@@ -427,6 +486,21 @@ class ReaderDetailCoordinator {
         var properties = ReaderHelpers.statsPropertiesForPost(readerPost, andValue: nil, forKey: nil)
         properties[DetailAnalyticsConstants.TypeKey] = detailType
         properties[DetailAnalyticsConstants.OfflineKey] = isOfflineView
+
+
+        // Track related post tapped
+        if let simplePost = remoteSimplePost {
+            switch simplePost.postType {
+                case .local:
+                    WPAnalytics.track(.readerRelatedPostFromSameSiteClicked, properties: properties)
+                case .global:
+                    WPAnalytics.track(.readerRelatedPostFromOtherSiteClicked, properties: properties)
+                default:
+                    DDLogError("Unknown related post type: \(String(describing: simplePost.postType))")
+            }
+        }
+
+        // Track open
         WPAppAnalytics.track(.readerArticleOpened, withProperties: properties)
 
         if let railcar = readerPost.railcarDictionary() {
@@ -434,7 +508,7 @@ class ReaderDetailCoordinator {
         }
     }
 
-    /// Bum post page view
+    /// Bump post page view
     ///
     private func bumpPageViewsForPost() {
         guard let readerPost = post else {
@@ -453,6 +527,7 @@ class ReaderDetailCoordinator {
     }
 }
 
+// MARK: - ReaderDetailHeaderViewDelegate
 extension ReaderDetailCoordinator: ReaderDetailHeaderViewDelegate {
     func didTapBlogName() {
         previewSite()
@@ -470,6 +545,17 @@ extension ReaderDetailCoordinator: ReaderDetailHeaderViewDelegate {
         previewSite()
     }
 
+    func didTapFollowButton() {
+        followSite()
+    }
+
+    func didSelectTopic(_ topic: String) {
+        showTopic(topic)
+    }
+}
+
+// MARK: - ReaderDetailFeaturedImageViewDelegate
+extension ReaderDetailCoordinator: ReaderDetailFeaturedImageViewDelegate {
     func didTapFeaturedImage(_ sender: CachedAnimatedImageView) {
         showFeaturedImage(sender)
     }

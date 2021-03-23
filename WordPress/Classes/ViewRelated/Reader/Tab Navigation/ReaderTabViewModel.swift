@@ -24,7 +24,6 @@ import WordPressFlux
 
     /// Completion handler for selecting a filter from the available filter list
     var filterTapped: ((UIView, @escaping (ReaderAbstractTopic?) -> Void) -> Void)?
-    var selectedFilter: ReaderAbstractTopic?
 
     /// search
     var navigateToSearch: () -> Void
@@ -36,7 +35,6 @@ import WordPressFlux
 
     /// Settings
     private let settingsPresenter: ScenePresenter
-    var settingsTapped: ((UIView) -> Void)?
 
     init(readerContentFactory: @escaping (ReaderContent) -> ReaderContentViewController,
          searchNavigationFactory: @escaping () -> Void,
@@ -81,6 +79,10 @@ extension ReaderTabViewModel {
             return
         }
         selectedIndex = index
+
+        if tabItems[index].content.type == .saved {
+            setContent?(tabItems[index].content)
+        }
     }
 
     /// switch to the tab whose topic matches the given predicate
@@ -124,41 +126,48 @@ extension ReaderTabViewModel {
         settingsPresenter.present(on: from, animated: true, completion: nil)
     }
 
-    func presentFilter(from: UIView, completion: @escaping (String?) -> Void) {
+    func presentFilter(from: UIView, completion: @escaping (ReaderAbstractTopic?) -> Void) {
         filterTapped?(from, { [weak self] topic in
-            self?.selectedFilter = topic
             if let topic = topic {
-                self?.setContent?(ReaderContent(topic: topic))
+                self?.setFilterContent(topic: topic)
             }
-            completion(topic?.title)
+            completion(topic)
         })
     }
 
     func resetFilter(selectedItem: FilterTabBarItem) {
-        selectedFilter = nil
         if let content = (selectedItem as? ReaderTabItem)?.content {
             setContent?(content)
         }
     }
-}
 
-
-// MARK: - Settings
-extension ReaderTabViewModel {
-
-    func presentSettings(from: UIView) {
-        settingsTapped?(from)
+    func setFilterContent(topic: ReaderAbstractTopic) {
+        setContent?(ReaderContent(topic: topic))
     }
-}
 
+}
 
 // MARK: - Bottom Sheet
 extension ReaderTabViewModel {
     private func makeFilterSheetViewController(completion: @escaping (ReaderAbstractTopic) -> Void) -> FilterSheetViewController {
-        return FilterSheetViewController(filters:
-            [ReaderSiteTopic.filterProvider(),
-             ReaderTagTopic.filterProvider()],
-            changedFilter: completion)
+        let selectedTab = tabItems[selectedIndex]
+
+        let siteType: SiteOrganizationType = {
+            if let teamTopic = selectedTab.content.topic as? ReaderTeamTopic {
+                return teamTopic.organizationType
+            }
+            return .none
+        }()
+
+        var filters = [ReaderSiteTopic.filterProvider(for: siteType)]
+
+        if !selectedTab.shouldHideTagFilter {
+            filters.append(ReaderTagTopic.filterProvider())
+        }
+
+        return FilterSheetViewController(viewTitle: selectedTab.title,
+                                         filters: filters,
+                                         changedFilter: completion)
     }
 }
 

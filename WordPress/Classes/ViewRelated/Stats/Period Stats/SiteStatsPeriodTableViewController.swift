@@ -210,12 +210,12 @@ extension SiteStatsPeriodTableViewController: NoResultsViewHost {
         configureAndDisplayNoResults(on: tableView,
                                      title: NoResultConstants.errorTitle,
                                      subtitle: NoResultConstants.errorSubtitle,
-                                     buttonTitle: NoResultConstants.refreshButtonTitle) { [weak self] noResults in
+                                     buttonTitle: NoResultConstants.refreshButtonTitle, customizationBlock: { [weak self] noResults in
                                         noResults.delegate = self
                                         if !noResults.isReachable {
                                             noResults.resetButtonText()
                                         }
-        }
+                                     })
     }
 
     private enum NoResultConstants {
@@ -246,8 +246,7 @@ extension SiteStatsPeriodTableViewController: SiteStatsPeriodDelegate {
 
     func displayMediaWithID(_ mediaID: NSNumber) {
 
-        guard let siteID = SiteStatsInformation.sharedInstance.siteID,
-            let blog = blogService.blog(byBlogId: siteID) else {
+        guard let siteID = SiteStatsInformation.sharedInstance.siteID, let blog = Blog.lookup(withID: siteID, in: mainContext) else {
                 DDLogInfo("Unable to get blog when trying to show media from Stats.")
                 return
         }

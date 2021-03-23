@@ -12,8 +12,6 @@ import WordPressFlux
 ///   - This controller uses MULTIPLE NSManagedObjectContexts to manage syncing and state.
 ///     - The topic exists in the main context
 ///     - Syncing is performed on a derived (background) context.
-///     - Content is fetched on a child context of the main context.  This allows
-///         new content to be synced without interrupting the UI until desired.
 ///   - Row heights are auto-calculated via UITableViewAutomaticDimension and estimated heights
 ///         are cached via willDisplayCell.
 ///
@@ -62,6 +60,12 @@ import WordPressFlux
         return ReaderPostService(managedObjectContext: syncContext)
     }()
 
+    /// An alias for the apps's main context – temporarily replaces  `newMainContextChildContext` until we have `NSPersistentContainer` support
+    ///
+    private var viewContext: NSManagedObjectContext {
+        ContextManager.sharedInstance().mainContext
+    }
+
     private(set) lazy var footerView: PostListFooterView = {
         return tableConfiguration.footer()
     }()
@@ -101,10 +105,6 @@ import WordPressFlux
     /// Actions
     private var postCellActions: ReaderPostCellActions?
 
-    /// Used for fetching content.
-    private lazy var displayContext: NSManagedObjectContext = ContextManager.sharedInstance().newMainContextChildContext()
-
-
     private var siteID: NSNumber? {
         didSet {
             if siteID != nil {
@@ -125,15 +125,12 @@ import WordPressFlux
         }
     }
 
-    private var hideHeader = false
-
     private var isShowingResultStatusView: Bool {
         return resultsStatusView.view?.superview != nil
     }
 
     private var isLoadingDiscover: Bool {
-        return FeatureFlag.newReaderNavigation.enabled &&
-            readerTopic == nil &&
+        return readerTopic == nil &&
             contentType == .topic &&
             siteID == ReaderHelpers.discoverSiteID
     }
@@ -147,9 +144,10 @@ import WordPressFlux
             }
             syncHelper?.delegate = self
 
-            if let newTopic = readerTopic {
+            if let newTopic = readerTopic,
+               let context = newTopic.managedObjectContext {
                 newTopic.inUse = true
-                ContextManager.sharedInstance().save(newTopic.managedObjectContext!)
+                ContextManager.sharedInstance().save(context)
             }
 
             if readerTopic != nil && readerTopic != oldValue {
@@ -170,7 +168,7 @@ import WordPressFlux
 
     var contentType: ReaderContentType = .topic {
         willSet {
-            if contentType == .saved && newValue != .saved {
+            if contentType == .saved {
                 postCellActions?.clearRemovedPosts()
             }
         }
@@ -198,7 +196,7 @@ import WordPressFlux
     ///
     @objc class func controllerWithTopic(_ topic: ReaderAbstractTopic) -> ReaderStreamViewController {
         // if a default discover topic is provided, treat it as a site to retrieve the header
-        if ReaderHelpers.topicIsDiscover(topic) && FeatureFlag.newReaderNavigation.enabled {
+        if ReaderHelpers.topicIsDiscover(topic) {
             return controllerWithSiteID(ReaderHelpers.discoverSiteID, isFeed: false)
         }
 
@@ -305,7 +303,11 @@ import WordPressFlux
         // pull to refresh animation.
         view.isUserInteractionEnabled = readerTopic != nil
 
+        navigationItem.largeTitleDisplayMode = .never
+
         NotificationCenter.default.addObserver(self, selector: #selector(defaultAccountDidChange(_:)), name: NSNotification.Name.WPAccountDefaultWordPressComAccountChanged, object: nil)
+
+        NotificationCenter.default.addObserver(self, selector: #selector(postSeenToggled(_:)), name: .ReaderPostSeenToggled, object: nil)
 
         refreshImageRequestAuthToken()
 
@@ -357,10 +359,6 @@ import WordPressFlux
         super.viewWillDisappear(animated)
 
         dismissNoNetworkAlert()
-
-        // We want to listen for any changes (following, liked) in a post detail so we can refresh the child context.
-        let mainContext = ContextManager.sharedInstance().mainContext
-        NotificationCenter.default.addObserver(self, selector: #selector(ReaderStreamViewController.handleContextDidSaveNotification(_:)), name: NSNotification.Name.NSManagedObjectContextDidSave, object: mainContext)
 
         ReaderTracker.shared.stop(.filteredList)
     }
@@ -520,24 +518,17 @@ import WordPressFlux
             return
         }
 
-        guard !hideHeader else {
-            tableView.tableHeaderView = nil
-            hideHeader = false
-            return
-        }
-
         if let tableHeaderView = tableView.tableHeaderView {
             header.isHidden = tableHeaderView.isHidden
         }
 
         tableView.tableHeaderView = header
-            // This feels somewhat hacky, but it is the only way I found to insert a stack view into the header without breaking the autolayout constraints.
+
+        // This feels somewhat hacky, but it is the only way I found to insert a stack view into the header without breaking the autolayout constraints.
         let centerConstraint = header.centerXAnchor.constraint(equalTo: tableView.centerXAnchor)
         let topConstraint = header.topAnchor.constraint(equalTo: tableView.topAnchor)
         let headerWidthConstraint = header.widthAnchor.constraint(equalTo: tableView.widthAnchor)
-        if FeatureFlag.newReaderNavigation.enabled {
-            headerWidthConstraint.priority = UILayoutPriority(999)
-        }
+        headerWidthConstraint.priority = UILayoutPriority(999)
 
         NSLayoutConstraint.activate([
             centerConstraint,
@@ -574,16 +565,14 @@ import WordPressFlux
             // need to refresh.
             tableViewController.refreshControl = nil
         }
+
         // saved posts are local so do not need a pull to refresh
-        if FeatureFlag.newReaderNavigation.enabled, contentType == .saved {
+        if contentType == .saved {
             tableViewController.refreshControl = nil
         }
 
         // Rather than repeatedly creating a service to check if the user is logged in, cache it here.
         isLoggedIn = AccountHelper.isDotcomAvailable()
-
-        // Reset our display context to ensure its current.
-        managedObjectContext().reset()
 
         configureTitleForTopic()
         configureShareButtonIfNeeded()
@@ -616,7 +605,7 @@ import WordPressFlux
             listentingForBlockedSiteNotification = true
             NotificationCenter.default.addObserver(self,
                 selector: #selector(ReaderStreamViewController.handleBlockSiteNotification(_:)),
-                name: NSNotification.Name(rawValue: ReaderPostMenu.BlockSiteNotification),
+                name: .ReaderSiteBlocked,
                 object: nil)
         }
     }
@@ -750,36 +739,25 @@ import WordPressFlux
     }
 
     private func showFollowing() {
-        guard !FeatureFlag.newReaderNavigation.enabled else {
-            WPTabBarController.sharedInstance().switchToFollowedSites()
-            return
-        }
-        guard let readerMenuViewController = WPTabBarController.sharedInstance().readerMenuViewController else {
-            return
-        }
-
-        readerMenuViewController.showSectionForDefaultMenuItem(withOrder: .followed, animated: true)
+        WPTabBarController.sharedInstance().switchToFollowedSites()
     }
 
     // MARK: - Blocking
 
-    private func blockSiteForPost(_ post: ReaderPost) {
-        guard let indexPath = content.indexPath(forObject: post) else {
+    /// Update the post card when a site is blocked from post details.
+    ///
+    @objc private func handleBlockSiteNotification(_ notification: Foundation.Notification) {
+        guard let userInfo = notification.userInfo,
+              let aPost = userInfo[ReaderNotificationKeys.post] as? ReaderPost,
+              let post = (try? viewContext.existingObject(with: aPost.objectID)) as? ReaderPost,
+              let indexPath = content.indexPath(forObject: post) else {
             return
         }
 
-        let objectID = post.objectID
-        recentlyBlockedSitePostObjectIDs.add(objectID)
+        recentlyBlockedSitePostObjectIDs.remove(post.objectID)
         updateAndPerformFetchRequest()
-
         tableView.reloadRows(at: [indexPath], with: UITableView.RowAnimation.fade)
-
-        ReaderBlockSiteAction(asBlocked: true).execute(with: post, context: managedObjectContext()) { [weak self] in
-            self?.recentlyBlockedSitePostObjectIDs.remove(objectID)
-            self?.tableView.reloadRows(at: [indexPath], with: UITableView.RowAnimation.fade)
-        }
     }
-
 
     private func unblockSiteForPost(_ post: ReaderPost) {
         guard let indexPath = content.indexPath(forObject: post) else {
@@ -791,29 +769,9 @@ import WordPressFlux
 
         tableView.reloadRows(at: [indexPath], with: UITableView.RowAnimation.fade)
 
-        ReaderBlockSiteAction(asBlocked: false).execute(with: post, context: managedObjectContext()) { [weak self] in
+        ReaderBlockSiteAction(asBlocked: false).execute(with: post, context: viewContext) { [weak self] in
             self?.recentlyBlockedSitePostObjectIDs.add(objectID)
             self?.tableView.reloadRows(at: [indexPath], with: UITableView.RowAnimation.fade)
-        }
-    }
-
-
-    /// A user can block a site from the detail screen.  When this happens, we need
-    /// to update the list UI to properly reflect the change. Listen for the
-    /// notification and call blockSiteForPost as needed.
-    ///
-    @objc private func handleBlockSiteNotification(_ notification: Foundation.Notification) {
-        guard let userInfo = notification.userInfo, let aPost = userInfo["post"] as? ReaderPost else {
-            return
-        }
-
-        guard let post = (try? managedObjectContext().existingObject(with: aPost.objectID)) as? ReaderPost else {
-            DDLogError("Error fetching existing post from context.")
-            return
-        }
-
-        if let _ = content.indexPath(forObject: post) {
-            blockSiteForPost(post)
         }
     }
 
@@ -839,7 +797,7 @@ import WordPressFlux
             return
         }
         syncHelper?.syncContentWithUserInteraction(true)
-        WPAnalytics.track(.readerPullToRefresh, properties: topicPropertyForStats() ?? [:])
+        WPAnalytics.trackReader(.readerPullToRefresh, properties: topicPropertyForStats() ?? [:])
     }
 
 
@@ -853,7 +811,9 @@ import WordPressFlux
             return
         }
 
-        guard let topic = readerTopic, let properties = topicPropertyForStats(), isViewLoaded && view.window != nil else {
+        guard let topic = readerTopic,
+              let properties = topicPropertyForStats(),
+              isViewLoaded && view.window != nil else {
             return
         }
 
@@ -900,7 +860,7 @@ import WordPressFlux
     /// - The app must be running on the foreground.
     /// - The current time must be greater than the last sync interval.
     ///
-    func syncIfAppropriate() {
+    func syncIfAppropriate(forceSync: Bool = false) {
         guard UIApplication.shared.isRunningTestSuite() == false else {
             return
         }
@@ -925,7 +885,7 @@ import WordPressFlux
         let lastSynced = topic.lastSynced ?? Date(timeIntervalSince1970: 0)
         let interval = Int( Date().timeIntervalSince(lastSynced))
 
-        if canSync() && (interval >= refreshInterval || topicPostsCount == 0) {
+        if forceSync || (canSync() && (interval >= refreshInterval || topicPostsCount == 0)) {
             syncHelper?.syncContentWithUserInteraction(false)
         } else {
             handleConnectionError()
@@ -937,7 +897,7 @@ import WordPressFlux
     var topicPostsCount: Int {
         return readerTopic?.posts.count ?? 0
     }
-    /// Used to fetch new content in response to a background refresh event.  
+    /// Used to fetch new content in response to a background refresh event.
     /// Not intended for use as part of a user interaction. See syncIfAppropriate instead.
     ///
     @objc func backgroundFetch(_ completionHandler: @escaping ((UIBackgroundFetchResult) -> Void)) {
@@ -1035,10 +995,6 @@ import WordPressFlux
         } else {
             service.fetchPosts(for: topic, earlierThan: Date(), success: success, failure: failure)
         }
-    }
-
-    private func isNewDiscover() -> Bool {
-        return readerTopic?.title == "Discover" && FeatureFlag.readerImprovementsPhase2.enabled
     }
 
     private func syncItemsForGap(_ success: ((_ hasMore: Bool) -> Void)?, failure: ((_ error: NSError) -> Void)?) {
@@ -1179,6 +1135,23 @@ import WordPressFlux
         refreshImageRequestAuthToken()
     }
 
+    @objc private func postSeenToggled(_ notification: Foundation.Notification) {
+
+        // When a post's seen status is toggled outside the stream (ex: post details),
+        // refresh the post in the stream so the card options menu has the correct
+        // mark as seen/unseen option.
+
+        guard let userInfo = notification.userInfo,
+              let post = userInfo[ReaderNotificationKeys.post] as? ReaderPost,
+              let indexPath = content.indexPath(forObject: post),
+              let cellPost: ReaderPost = content.object(at: indexPath) else {
+            return
+        }
+
+        cellPost.isSeen = post.isSeen
+        tableView.reloadRows(at: [indexPath], with: .fade)
+    }
+
     // MARK: - Helpers for TableViewHandler
 
 
@@ -1195,7 +1168,7 @@ import WordPressFlux
             return predicateForNilTopic
         }
 
-        guard let topicInContext = (try? managedObjectContext().existingObject(with: topic.objectID)) as? ReaderAbstractTopic else {
+        guard let topicInContext = (try? viewContext.existingObject(with: topic.objectID)) as? ReaderAbstractTopic else {
             DDLogError("Error: Could not retrieve an existing topic via its objectID")
             return predicateForNilTopic
         }
@@ -1216,7 +1189,7 @@ import WordPressFlux
 
     private func configurePostCardCell(_ cell: UITableViewCell, post: ReaderPost) {
         if postCellActions == nil {
-            postCellActions = ReaderPostCellActions(context: managedObjectContext(), origin: self, topic: readerTopic)
+            postCellActions = ReaderPostCellActions(context: viewContext, origin: self, topic: readerTopic)
         }
         postCellActions?.isLoggedIn = isLoggedIn
         postCellActions?.savedPostsDelegate = self
@@ -1224,16 +1197,14 @@ import WordPressFlux
         // Restrict the topics header to only display on the Discover, and tag detail views
         var displayTopics = false
 
-        if FeatureFlag.readerImprovementsPhase2.enabled {
-            if let topic = readerTopic {
-                let type = ReaderHelpers.topicType(topic)
+        if let topic = readerTopic {
+            let type = ReaderHelpers.topicType(topic)
 
-                switch type {
-                case .discover, .tag:
-                    displayTopics = true
-                default:
-                    displayTopics = false
-                }
+            switch type {
+            case .discover, .tag:
+                displayTopics = true
+            default:
+                displayTopics = false
             }
         }
 
@@ -1247,35 +1218,18 @@ import WordPressFlux
 
     }
 
-    @objc private func handleContextDidSaveNotification(_ notification: Foundation.Notification) {
-        ContextManager.sharedInstance().mergeChanges(displayContext, fromContextDidSave: notification)
-    }
-
-
     // MARK: - Helpers for ReaderStreamHeader
-
-
-    private func toggleFollowingForTag(_ topic: ReaderTagTopic) {
-        let generator = UINotificationFeedbackGenerator()
-        generator.prepare()
-
-        if !topic.following {
-            generator.notificationOccurred(.success)
+    public func toggleFollowingForTopic(_ topic: ReaderAbstractTopic?, completion: ((Bool) -> Void)?) {
+        if let topic = topic as? ReaderTagTopic {
+            toggleFollowingForTag(topic, completion: completion)
+        } else if let topic = topic as? ReaderSiteTopic {
+            toggleFollowingForSite(topic, completion: completion)
+        } else if let topic = topic as? ReaderDefaultTopic, ReaderHelpers.topicIsFollowing(topic) {
+            showManageSites()
         }
-
-        let service = ReaderTopicService(managedObjectContext: topic.managedObjectContext!)
-        service.toggleFollowing(forTag: topic, success: { [weak self] in
-            self?.syncHelper?.syncContent()
-        }, failure: { [weak self] (error: Error?) in
-            generator.notificationOccurred(.error)
-            self?.updateStreamHeaderIfNeeded()
-        })
-
-        updateStreamHeaderIfNeeded()
     }
 
-
-    private func toggleFollowingForSite(_ topic: ReaderSiteTopic) {
+    private func toggleFollowingForTag(_ topic: ReaderTagTopic, completion: ((Bool) -> Void)?) {
         let generator = UINotificationFeedbackGenerator()
         generator.prepare()
 
@@ -1283,26 +1237,28 @@ import WordPressFlux
             generator.notificationOccurred(.success)
         }
 
-        let toFollow = !topic.following
-        let siteID = topic.siteID
-        let siteTitle = topic.title
+        let service = ReaderTopicService(managedObjectContext: topic.managedObjectContext!)
+        service.toggleFollowing(forTag: topic, success: {
+            completion?(true)
+        }, failure: { (error: Error?) in
+            generator.notificationOccurred(.error)
+            completion?(false)
+        })
+    }
 
-        if !toFollow {
-            ReaderSubscribingNotificationAction().execute(for: siteID, context: managedObjectContext(), value: !topic.isSubscribedForPostNotifications)
+    private func toggleFollowingForSite(_ topic: ReaderSiteTopic, completion: ((Bool) -> Void)?) {
+        if topic.following {
+            ReaderSubscribingNotificationAction().execute(for: siteID, context: viewContext, subscribe: false)
         }
 
         let service = ReaderTopicService(managedObjectContext: topic.managedObjectContext!)
-        service.toggleFollowing(forSite: topic, success: { [weak self] in
-            self?.syncHelper?.syncContent()
-            if toFollow {
-                self?.dispatchSubscribingNotificationNotice(with: siteTitle, siteID: siteID)
-            }
-        }, failure: { [weak self] (error: Error?) in
-            generator.notificationOccurred(.error)
-            self?.updateStreamHeaderIfNeeded()
+        service.toggleFollowing(forSite: topic, success: {
+            ReaderHelpers.dispatchToggleFollowSiteMessage(topic: topic, success: true)
+            completion?(true)
+        }, failure: { (error: Error?) in
+            ReaderHelpers.dispatchToggleFollowSiteMessage(topic: topic, success: false)
+            completion?(false)
         })
-
-        updateStreamHeaderIfNeeded()
     }
 }
 
@@ -1312,15 +1268,15 @@ import WordPressFlux
 extension ReaderStreamViewController: ReaderStreamHeaderDelegate {
 
     func handleFollowActionForHeader(_ header: ReaderStreamHeader) {
-        if let topic = readerTopic as? ReaderTagTopic {
-            toggleFollowingForTag(topic)
+        toggleFollowingForTopic(readerTopic) { [weak self] success in
+            if success {
+                self?.syncHelper?.syncContent()
+            }
 
-        } else if let topic = readerTopic as? ReaderSiteTopic {
-            toggleFollowingForSite(topic)
-
-        } else if let topic = readerTopic as? ReaderDefaultTopic, ReaderHelpers.topicIsFollowing(topic) {
-            showManageSites()
+            self?.updateStreamHeaderIfNeeded()
         }
+
+        updateStreamHeaderIfNeeded()
     }
 }
 
@@ -1403,7 +1359,8 @@ extension ReaderStreamViewController: WPTableViewHandlerDelegate {
     // MARK: - Fetched Results Related
 
     func managedObjectContext() -> NSManagedObjectContext {
-        return displayContext
+        assert(Thread.isMainThread, "WPTableViewHandler should use Core Data on the main thread")
+        return viewContext
     }
 
 
@@ -1426,7 +1383,6 @@ extension ReaderStreamViewController: WPTableViewHandlerDelegate {
 
     func tableViewHandlerWillRefreshTableViewPreservingOffset(_ tableViewHandler: WPTableViewHandler) {
         // Reload the table view to reflect new content.
-        managedObjectContext().reset()
         updateAndPerformFetchRequest()
     }
 
@@ -1444,7 +1400,6 @@ extension ReaderStreamViewController: WPTableViewHandlerDelegate {
 
 
     // MARK: - TableView Related
-
     func tableView(_ tableView: UITableView, estimatedHeightForRowAt indexPath: IndexPath) -> CGFloat {
         // When using UITableViewAutomaticDimension for auto-sizing cells, UITableView
         // likes to reload rows in a strange way.
@@ -1459,7 +1414,6 @@ extension ReaderStreamViewController: WPTableViewHandlerDelegate {
         }
         return tableConfiguration.estimatedRowHeight()
     }
-
 
     func tableView(_ aTableView: UITableView, heightForRowAt indexPath: IndexPath) -> CGFloat {
         return UITableView.automaticDimension
@@ -1589,11 +1543,12 @@ extension ReaderStreamViewController: WPTableViewHandlerDelegate {
         }
 
         let controller = ReaderDetailViewController.controllerWithPost(post)
+        controller.coordinator?.readerTopic = readerTopic
 
         if post.isSavedForLater || contentType == .saved {
             trackSavedPostNavigation()
         } else {
-            WPAnalytics.track(.readerPostCardTapped, properties: topicPropertyForStats() ?? [:])
+            WPAnalytics.trackReader(.readerPostCardTapped, properties: topicPropertyForStats() ?? [:])
         }
 
         navigationController?.pushFullscreenViewController(controller, animated: true)
@@ -1843,12 +1798,13 @@ extension ReaderStreamViewController: UIViewControllerTransitioningDelegate {
 extension ReaderStreamViewController: ReaderContentViewController {
     func setContent(_ content: ReaderContent) {
         isContentFiltered = content.topicType == .tag || content.topicType == .site
-        hideHeader = content.topicType == .site
         readerTopic = content.topicType == .discover ? nil : content.topic
         contentType = content.type
+
         guard !shouldDisplayNoTopicController else {
             return
         }
+
         siteID = content.topicType == .discover ? ReaderHelpers.discoverSiteID : nil
         trackFilterTime()
     }
@@ -1862,7 +1818,6 @@ extension ReaderStreamViewController: ReaderContentViewController {
     }
 }
 
-
 // MARK: - Saved Posts Delegate
 extension ReaderStreamViewController: ReaderSavedPostCellActionsDelegate {
     func willRemove(_ cell: ReaderPostCardCell) {
@@ -1872,8 +1827,8 @@ extension ReaderStreamViewController: ReaderSavedPostCellActionsDelegate {
     }
 }
 
-
 // MARK: - Undo
+
 extension ReaderStreamViewController: ReaderPostUndoCellDelegate {
     func readerCellWillUndo(_ cell: ReaderSavedPostUndoCell) {
         if let cellIndex = tableView.indexPath(for: cell),
@@ -1888,9 +1843,6 @@ extension ReaderStreamViewController: ReaderPostUndoCellDelegate {
 private extension ReaderStreamViewController {
 
     var shouldDisplayNoTopicController: Bool {
-        guard FeatureFlag.newReaderNavigation.enabled else {
-            return false
-        }
         switch contentType {
         case .selfHostedFollowing:
             displaySelfHostedFollowingController()

@@ -128,8 +128,12 @@ FeaturedImageViewControllerDelegate>
 {
     [super viewDidLoad];
     
-    self.title = NSLocalizedString(@"Post Settings", @"The title of the Post Settings screen.");
-
+    if ([self.apost isKindOfClass:[Page class]]) {
+        self.title = NSLocalizedString(@"Page Settings", @"The title of the Page Settings screen.");
+    } else {
+        self.title = NSLocalizedString(@"Post Settings", @"The title of the Post Settings screen.");
+    }
+    
     DDLogInfo(@"%@ %@", self, NSStringFromSelector(_cmd));
 
     [WPStyleGuide configureColorsForView:self.view andTableView:self.tableView];
@@ -260,7 +264,7 @@ FeaturedImageViewControllerDelegate>
     NSDateFormatter *dateFormatter = [[NSDateFormatter alloc] init];
     dateFormatter.dateStyle = NSDateFormatterLongStyle;
     dateFormatter.timeStyle = NSDateFormatterShortStyle;
-    dateFormatter.timeZone = [self.blogService timeZoneForBlog:self.apost.blog];
+    dateFormatter.timeZone = [self.apost.blog timeZone];
     self.postDateFormatter = dateFormatter;
 }
 
@@ -693,6 +697,7 @@ FeaturedImageViewControllerDelegate>
     // Password
     WPTextFieldTableViewCell *textCell = [self getWPTableViewTextFieldCell];
     textCell.textLabel.text = NSLocalizedString(@"Password", @"Label for the password field. Should be the same as WP core.");
+    textCell.textField.textColor = [UIColor murielText];
     textCell.textField.text = self.apost.password;
     textCell.textField.attributedPlaceholder = nil;
     textCell.textField.placeholder = NSLocalizedString(@"Enter a password", @"");

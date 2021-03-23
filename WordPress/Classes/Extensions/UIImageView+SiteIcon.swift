@@ -1,6 +1,7 @@
 import AlamofireImage
 import AutomatticTracks
 import Foundation
+import Gridicons
 
 /// UIImageView Helper Methods that allow us to download a SiteIcon, given a website's "Icon Path"
 ///
@@ -63,7 +64,7 @@ extension UIImageView {
         with request: URLRequest,
         placeholderImage: UIImage?) {
 
-        af_setImage(withURLRequest: request, placeholderImage: placeholderImage) { [weak self] dataResponse in
+        af_setImage(withURLRequest: request, placeholderImage: placeholderImage, completion: { [weak self] dataResponse in
             switch dataResponse.result {
             case .success(let image):
                 guard let self = self else {
@@ -91,10 +92,10 @@ extension UIImageView {
                 if case .requestCancelled = (error as? AFIError) {
                     // Do not log intentionally cancelled requests as errors.
                 } else {
-                    CrashLogging.logError(error)
+                    WordPressAppDelegate.crashLogging?.logError(error)
                 }
             }
-        }
+        })
     }
 
 
@@ -108,13 +109,20 @@ extension UIImageView {
     @objc
     func downloadSiteIcon(for blog: Blog, placeholderImage: UIImage? = .siteIconPlaceholder) {
         guard let siteIconPath = blog.icon, let siteIconURL = optimizedURL(for: siteIconPath) else {
+
+            if blog.isWPForTeams() && placeholderImage == .siteIconPlaceholder {
+                let standardSize = CGSize(width: SiteIconDefaults.imageSize, height: SiteIconDefaults.imageSize)
+                image = UIImage.gridicon(.p2, size: standardSize)
+                return
+            }
+
             image = placeholderImage
             return
         }
 
         let host = MediaHost(with: blog) { error in
             // We'll log the error, so we know it's there, but we won't halt execution.
-            CrashLogging.logError(error)
+            WordPressAppDelegate.crashLogging?.logError(error)
         }
 
         let mediaRequestAuthenticator = MediaRequestAuthenticator()
@@ -124,7 +132,7 @@ extension UIImageView {
             onComplete: { [weak self] request in
                 self?.downloadSiteIcon(with: request, placeholderImage: placeholderImage)
         }) { error in
-            CrashLogging.logError(error)
+            WordPressAppDelegate.crashLogging?.logError(error)
         }
     }
 }

@@ -23,9 +23,10 @@ struct DomainsService {
 
     func getDomainSuggestions(base: String,
                               segmentID: Int64,
+                              quantity: Int? = nil,
                               success: @escaping ([DomainSuggestion]) -> Void,
                               failure: @escaping (Error) -> Void) {
-        let request = DomainSuggestionRequest(query: base, segmentID: segmentID)
+        let request = DomainSuggestionRequest(query: base, segmentID: segmentID, quantity: quantity)
 
         remote.getDomainSuggestions(request: request,
                                     success: { suggestions in
@@ -37,10 +38,12 @@ struct DomainsService {
     }
 
     func getDomainSuggestions(base: String,
+                              quantity: Int? = nil,
                               domainSuggestionType: DomainsServiceRemote.DomainSuggestionType = .onlyWordPressDotCom,
                               success: @escaping ([DomainSuggestion]) -> Void,
                               failure: @escaping (Error) -> Void) {
         remote.getDomainSuggestions(base: base,
+                                    quantity: quantity,
                                     domainSuggestionType: domainSuggestionType,
                                     success: { suggestions in
             let sorted = self.sortedSuggestions(suggestions, forBase: base)
@@ -93,9 +96,7 @@ struct DomainsService {
     }
 
     fileprivate func blogForSiteID(_ siteID: Int) -> Blog? {
-        let service = BlogService(managedObjectContext: context)
-
-        guard let blog = service.blog(byBlogId: NSNumber(value: siteID)) else {
+        guard let blog = try? Blog.lookup(withID: siteID, in: context) else {
             let error = "Tried to obtain a Blog for a non-existing site (ID: \(siteID))"
             assertionFailure(error)
             DDLogError(error)

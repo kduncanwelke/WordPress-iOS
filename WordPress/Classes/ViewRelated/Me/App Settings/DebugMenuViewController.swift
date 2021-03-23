@@ -76,31 +76,33 @@ class DebugMenuViewController: UITableViewController {
     // MARK: Crash Logging
 
     private var crashLoggingRows: [ImmuTableRow] {
-        return [
+
+        var rows: [ImmuTableRow] = [
             ButtonRow(title: Strings.sendLogMessage, action: { _ in
-                CrashLogging.logMessage("Debug Log Message \(UUID().uuidString)")
+                WordPressAppDelegate.crashLogging?.logMessage("Debug Log Message \(UUID().uuidString)")
                 self.tableView.deselectSelectedRowWithAnimationAfterDelay(true)
             }),
             ButtonRow(title: Strings.sendTestCrash, action: { _ in
                 DDLogInfo("Initiating user-requested crash")
-                CrashLogging.crash()
-            }),
-            ButtonRow(title: Strings.encryptedLogging, action: { _ in
-                self.navigationController?.pushViewController(EncryptedLogTableViewController(), animated: true)
-            }),
-            SwitchWithSubtitleRow(title: Strings.alwaysSendLogs, value: shouldAlwaysSendLogs, onChange: { isOn in
-                self.shouldAlwaysSendLogs = isOn
-            }),
+                WordPressAppDelegate.crashLogging?.crash()
+            })
         ]
-    }
 
-    var shouldAlwaysSendLogs: Bool {
-        get {
-            return UserDefaults.standard.bool(forKey: "force-crash-logging")
+        if let eventLogging = WordPressAppDelegate.eventLogging {
+            let tableViewController = EncryptedLogTableViewController(eventLogging: eventLogging)
+            let encryptedLoggingRow = ButtonRow(title: Strings.encryptedLogging) { _ in
+                self.navigationController?.pushViewController(tableViewController, animated: true)
+            }
+            rows.append(encryptedLoggingRow)
         }
-        set {
-            UserDefaults.standard.setValue(newValue, forKey: "force-crash-logging")
+
+        let alwaysSendLogsRow = SwitchWithSubtitleRow(title: Strings.alwaysSendLogs, value: UserSettings.userHasForcedCrashLoggingEnabled) { isOn in
+            UserSettings.userHasForcedCrashLoggingEnabled = isOn
         }
+
+        rows.append(alwaysSendLogsRow)
+
+        return rows
     }
 
     private func displayBlogPickerForQuickStart() {
@@ -127,7 +129,7 @@ class DebugMenuViewController: UITableViewController {
     }
 
     private func enableQuickStart(for blog: Blog) {
-        QuickStartTourGuide.find()?.setup(for: blog)
+        QuickStartTourGuide.shared.setup(for: blog)
     }
 
     // MARK: Reader

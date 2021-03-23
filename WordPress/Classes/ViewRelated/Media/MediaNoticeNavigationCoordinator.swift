@@ -17,12 +17,12 @@ class MediaNoticeNavigationCoordinator {
         editor.modalPresentationStyle = .fullScreen
         editor.insertedMedia = media
         WPTabBarController.sharedInstance().present(editor, animated: false)
-        WPAppAnalytics.track(.editorCreatedPost, withProperties: ["tap_source": source, WPAppAnalyticsKeyPostType: "post"], with: blog)
+        WPAppAnalytics.track(.editorCreatedPost, withProperties: [WPAppAnalyticsKeyTapSource: source, WPAppAnalyticsKeyPostType: "post"], with: blog)
     }
 
     static func navigateToMediaLibrary(with userInfo: NSDictionary) {
         if let blog = blog(from: userInfo) {
-            WPTabBarController.sharedInstance().switchMySitesTabToMedia(for: blog)
+            WPTabBarController.sharedInstance()?.mySitesCoordinator.showMedia(for: blog)
         }
     }
 

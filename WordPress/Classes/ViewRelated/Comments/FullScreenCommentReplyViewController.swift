@@ -68,9 +68,8 @@ public class FullScreenCommentReplyViewController: EditCommentViewController, Su
             return
         }
 
-        let tableView = SuggestionsTableView()
-        tableView.siteID = siteID
-        tableView.suggestionsDelegate = self
+        guard let siteID = siteID else { return }
+        let tableView = SuggestionsTableView(siteID: siteID, suggestionType: .mention, delegate: self)
         tableView.useTransparentHeader = true
         tableView.translatesAutoresizingMaskIntoConstraints = false
 
@@ -137,15 +136,13 @@ public class FullScreenCommentReplyViewController: EditCommentViewController, Su
 
     /// Updates the iOS 13 title color
     private func configureAppearance() {
-        if #available(iOS 13.0, *) {
-            guard let navigationBar = navigationController?.navigationBar else {
-                return
-            }
-
-            navigationBar.standardAppearance.titleTextAttributes = [
-                NSAttributedString.Key.foregroundColor: UIColor.text
-            ]
+        guard let navigationBar = navigationController?.navigationBar else {
+            return
         }
+
+        navigationBar.standardAppearance.titleTextAttributes = [
+            NSAttributedString.Key.foregroundColor: UIColor.text
+        ]
     }
 
     /// Creates the `replyButton` to be used as the `rightBarButtonItem`
@@ -358,11 +355,8 @@ private extension FullScreenCommentReplyViewController {
 
     /// Determine if suggestions are enabled and visible for this site
     var shouldShowSuggestions: Bool {
-        guard let siteID = self.siteID else {
-            return false
-        }
-
-        return SuggestionService.shared.shouldShowSuggestions(for: siteID)
+        guard let siteID = self.siteID, let blog = Blog.lookup(withID: siteID, in: ContextManager.shared.mainContext) else { return false }
+        return SuggestionService.shared.shouldShowSuggestions(for: blog)
     }
 
     // This should be moved elsewhere

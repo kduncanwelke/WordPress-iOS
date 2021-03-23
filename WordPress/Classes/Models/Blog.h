@@ -12,6 +12,9 @@ NS_ASSUME_NONNULL_BEGIN
 @class WordPressOrgXMLRPCApi;
 @class Role;
 @class QuickStartTourState;
+@class UserSuggestion;
+@class SiteSuggestion;
+@class PageTemplateCategory;
 
 extern NSString * const BlogEntityName;
 extern NSString * const PostFormatStandard;
@@ -35,6 +38,8 @@ typedef NS_ENUM(NSUInteger, BlogFeature) {
     BlogFeatureActivity,
     /// Does the blog support mentions?
     BlogFeatureMentions,
+    /// Does the blog support xposts?
+    BlogFeatureXposts,
     /// Does the blog support push notifications?
     BlogFeaturePushNotifications,
     /// Does the blog support theme browsing?
@@ -72,7 +77,9 @@ typedef NS_ENUM(NSUInteger, BlogFeature) {
     /// Does the blog support Stock Photos feature (free photos library)
     BlogFeatureStockPhotos,
     /// Does the blog support setting the homepage type and pages?
-    BlogFeatureHomepageSettings
+    BlogFeatureHomepageSettings,
+    /// Does the blog support stories?
+    BlogFeatureStories,
 };
 
 typedef NS_ENUM(NSInteger, SiteVisibility) {
@@ -95,9 +102,12 @@ typedef NS_ENUM(NSInteger, SiteVisibility) {
 @property (nonatomic, strong, readwrite, nullable) NSSet *tags;
 @property (nonatomic, strong, readwrite, nullable) NSSet *comments;
 @property (nonatomic, strong, readwrite, nullable) NSSet *connections;
+@property (nonatomic, strong, readwrite, nullable) NSSet *inviteLinks;
 @property (nonatomic, strong, readwrite, nullable) NSSet *domains;
 @property (nonatomic, strong, readwrite, nullable) NSSet *themes;
 @property (nonatomic, strong, readwrite, nullable) NSSet *media;
+@property (nonatomic, strong, readwrite, nullable) NSSet<UserSuggestion *> *userSuggestions;
+@property (nonatomic, strong, readwrite, nullable) NSSet<SiteSuggestion *> *siteSuggestions;
 @property (nonatomic, strong, readwrite, nullable) NSOrderedSet *menus;
 @property (nonatomic, strong, readwrite, nullable) NSOrderedSet *menuLocations;
 @property (nonatomic, strong, readwrite, nullable) NSSet<Role *> *roles;
@@ -134,7 +144,7 @@ typedef NS_ENUM(NSInteger, SiteVisibility) {
 /// Disk quota for site, this is only available for WP.com sites
 @property (nonatomic, strong, readwrite, nullable) NSNumber *quotaSpaceAllowed;
 @property (nonatomic, strong, readwrite, nullable) NSNumber *quotaSpaceUsed;
-
+@property (nullable, nonatomic, retain) NSSet<PageTemplateCategory *> *pageTemplateCategories;
 
 /**
  *  @details    Maps to a BlogSettings instance, which contains a collection of the available preferences, 
@@ -189,6 +199,9 @@ typedef NS_ENUM(NSInteger, SiteVisibility) {
 // Used to check if the blog has an icon set up
 @property (readonly) BOOL hasIcon;
 
+/** Determine timezone for blog from blog options.  If no timezone information is stored on the device, then assume GMT+0 is the default. */
+@property (readonly) NSTimeZone *timeZone;
+
 #pragma mark - Blog information
 
 - (BOOL)isAtomic;
@@ -208,6 +221,7 @@ typedef NS_ENUM(NSInteger, SiteVisibility) {
 - (BOOL)supports:(BlogFeature)feature;
 - (BOOL)supportsPublicize;
 - (BOOL)supportsShareButtons;
+- (BOOL)hasMappedDomain;
 
 /**
  *  Returnst the text description for a post format code

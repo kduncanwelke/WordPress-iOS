@@ -99,6 +99,7 @@ import Gridicons
         super.viewDidLoad()
 
         navigationItem.title = NSLocalizedString("Search", comment: "Title of the Reader's search feature")
+        navigationItem.largeTitleDisplayMode = .never
 
         WPStyleGuide.configureColors(view: view, tableView: nil)
         setupSearchBar()
@@ -148,7 +149,7 @@ import Gridicons
             return
         }
 
-        QuickStartTourGuide.find()?.visited(.readerSearch)
+        QuickStartTourGuide.shared.visited(.readerSearch)
         WPAppAnalytics.track(.readerSearchLoaded)
         didBumpStats = true
     }

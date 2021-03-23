@@ -4,10 +4,24 @@ import XCTest
 
 class ReaderTabViewTests: XCTestCase {
 
+    var contextManager: TestContextManager!
+    var context: MockContext!
+
+    override func setUp() {
+        super.setUp()
+        contextManager = TestContextManager()
+        context = contextManager.getMockContext()
+    }
+
+    override func tearDown() {
+        contextManager = nil
+        context = nil
+        super.tearDown()
+    }
+
     func testRefreshTabBarWithHiddenButtons() {
         // Given
         let store = MockItemsStore()
-        let context = MockContext.getContext()!
         let topic = ReaderAbstractTopic(context: context)
 
         let viewModel = ReaderTabViewModel(readerContentFactory: readerContentControllerFactory(_:),
@@ -31,7 +45,6 @@ class ReaderTabViewTests: XCTestCase {
     func testRefreshTabBarWithNoHiddenButtons() {
         // Given
         let store = MockItemsStore()
-        let context = MockContext.getContext()!
         let topic = ReaderAbstractTopic(context: context)
         topic.path = "myPath/read/following"
 
@@ -56,7 +69,6 @@ class ReaderTabViewTests: XCTestCase {
     func testSelectIndex() {
         // Given
         let store = MockItemsStore()
-        let context = MockContext.getContext()!
         let topic = ReaderAbstractTopic(context: context)
         topic.path = "myPath/read/following"
 
@@ -95,7 +107,7 @@ extension ReaderTabViewTests {
 
     private func validateButtonsStackView(_ view: UIView) {
         XCTAssert(view is UIStackView)
-        XCTAssertEqual(view.subviews.count, 4)
+        XCTAssertEqual(view.subviews.count, 2)
         XCTAssertTrue(view.subviews.contains(where: { $0 is PostMetaButton }))
     }
 

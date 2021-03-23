@@ -14,8 +14,8 @@ final class ReaderVisitSiteAction {
             configuration.authenticate(account: account)
         }
         let controller = WebViewControllerFactory.controller(configuration: configuration)
-        let navController = UINavigationController(rootViewController: controller)
+        let navController = LightNavigationController(rootViewController: controller)
         origin.present(navController, animated: true)
-        WPAnalytics.track(.readerArticleVisited)
+        WPAnalytics.trackReader(.readerArticleVisited)
     }
 }

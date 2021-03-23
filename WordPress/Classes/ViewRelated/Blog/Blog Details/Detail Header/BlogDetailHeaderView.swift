@@ -3,11 +3,21 @@
     func siteIconReceivedDroppedImage(_ image: UIImage?)
     func siteIconShouldAllowDroppedImages() -> Bool
     func siteTitleTapped()
+    func siteSwitcherTapped()
+    func visitSiteTapped()
 }
 
-class BlogDetailHeaderView: UIView {
+class BlogDetailHeaderView: UIView, BlogDetailHeader {
 
     @objc weak var delegate: BlogDetailHeaderViewDelegate?
+
+    private static let siteIconInsets = UIEdgeInsets(top: 4, left: 4, bottom: 4, right: 4)
+
+    // Temporary method for migrating to NewBlogDetailHeaderView
+    @objc
+    var asView: UIView {
+        return self
+    }
 
     private let titleButton: SpotlightableButton = {
         let button = SpotlightableButton(type: .custom)
@@ -28,7 +38,7 @@ class BlogDetailHeaderView: UIView {
     }()
 
     private let siteIconView: SiteIconView = {
-        let view = SiteIconView(frame: .zero)
+        let view = SiteIconView(frame: .zero, insets: BlogDetailHeaderView.siteIconInsets)
         return view
     }()
 
@@ -61,6 +71,10 @@ class BlogDetailHeaderView: UIView {
         if let blog = blog,
             blog.hasIcon == true {
             siteIconView.imageView.downloadSiteIcon(for: blog)
+        } else if let blog = blog,
+            blog.isWPForTeams() {
+            siteIconView.imageView.tintColor = UIColor.listIcon
+            siteIconView.imageView.image = UIImage.gridicon(.p2)
         } else {
             siteIconView.imageView.image = UIImage.siteIconPlaceholder
         }
@@ -75,11 +89,15 @@ class BlogDetailHeaderView: UIView {
     }
 
     @objc func toggleSpotlightOnSiteTitle() {
-        titleButton.shouldShowSpotlight = QuickStartTourGuide.find()?.isCurrentElement(.siteTitle) == true
+        titleButton.shouldShowSpotlight = QuickStartTourGuide.shared.isCurrentElement(.siteTitle)
     }
 
     @objc func toggleSpotlightOnSiteIcon() {
-        siteIconView.spotlightIsShown = QuickStartTourGuide.find()?.isCurrentElement(.siteIcon) == true
+        siteIconView.spotlightIsShown = QuickStartTourGuide.shared.isCurrentElement(.siteIcon)
+    }
+
+    @objc func setTitleLoading(_ isLoading: Bool) {
+        isLoading ? titleButton.startLoading() : titleButton.stopLoading()
     }
 
     private enum Constants {
@@ -96,7 +114,7 @@ class BlogDetailHeaderView: UIView {
         self.init(frame: .zero)
 
         siteIconView.tapped = { [weak self] in
-            QuickStartTourGuide.find()?.visited(.siteIcon)
+            QuickStartTourGuide.shared.visited(.siteIcon)
             self?.siteIconView.spotlightIsShown = false
 
             self?.delegate?.siteIconTapped()
@@ -165,7 +183,7 @@ class BlogDetailHeaderView: UIView {
     }
 
     @objc private func titleButtonTapped() {
-        QuickStartTourGuide.find()?.visited(.siteTitle)
+        QuickStartTourGuide.shared.visited(.siteTitle)
         titleButton.shouldShowSpotlight = false
 
         delegate?.siteTitleTapped()

@@ -28,12 +28,13 @@
 
 - (instancetype)initWithBlog:(Blog *)blog
 {
-    // This has been added temporarily to try and track the source of a nil object exception
-    // Ref: https://github.com/wordpress-mobile/WordPress-iOS/issues/14960
-    //
-    // - Diego Rey Mendez, 2 October 2020
-    if (blog == nil) {
-        DDLogError(@"MediaLibraryPickerDataSource initializing with nil blog");
+    /// Temporary logging to try and narrow down an issue:
+    ///
+    /// REF: https://github.com/wordpress-mobile/WordPress-iOS/issues/15335
+    ///
+    if (blog == nil || blog.objectID == nil) {
+        DDLogError(@"🔴 Error: missing object ID (please contact @diegoreymendez with this log)");
+        DDLogError(@"%@", [NSThread callStackSymbols]);
     }
     
     self = [super init];
@@ -52,16 +53,7 @@
 }
 
 - (instancetype)initWithPost:(AbstractPost *)post
-{
-    // This has been added temporarily to try and track the source of a nil object exception
-    // Ref: https://github.com/wordpress-mobile/WordPress-iOS/issues/14960
-    //
-    // - Diego Rey Mendez, 2 October 2020
-    if (post == nil || post.blog == nil) {
-        DDLogError(@"MediaLibraryPickerDataSource initializing with a post with a nil blog");
-        DDLogError(@"Post MOC: %@", post.managedObjectContext);
-    }
-    
+{    
     self = [self initWithBlog:post.blog];
     if (self) {
         _post = post;
@@ -156,6 +148,15 @@
     // try to sync from the server
     MediaCoordinator *mediaCoordinator = [MediaCoordinator shared];
 
+    /// Temporary logging to try and narrow down an issue:
+    ///
+    /// REF: https://github.com/wordpress-mobile/WordPress-iOS/issues/15335
+    ///
+    if (self.blog == nil || self.blog.objectID == nil) {
+        DDLogError(@"🔴 Error: missing object ID (please contact @diegoreymendez with this log)");
+        DDLogError(@"%@", [NSThread callStackSymbols]);
+    }
+    
     __block BOOL ignoreSyncError = self.ignoreSyncErrors;
     [mediaCoordinator syncMediaFor:self.blog
                            success:^{
@@ -361,7 +362,7 @@
         return nil;
     }
     [mainContext performBlockAndWait:^{
-        NSManagedObjectID *assetID = [[[ContextManager sharedInstance] persistentStoreCoordinator] managedObjectIDForURIRepresentation:assetURL];
+        NSManagedObjectID *assetID = [[mainContext persistentStoreCoordinator] managedObjectIDForURIRepresentation:assetURL];
         media = (Media *)[mainContext objectWithID:assetID];
     }];
 

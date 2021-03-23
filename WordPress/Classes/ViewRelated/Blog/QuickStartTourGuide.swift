@@ -11,20 +11,21 @@ open class QuickStartTourGuide: NSObject {
     static let notificationElementKey = "QuickStartElementKey"
     static let notificationDescriptionKey = "QuickStartDescriptionKey"
 
-    @objc static func find() -> QuickStartTourGuide? {
-        guard let tabBarController = WPTabBarController.sharedInstance(),
-            let tourGuide = tabBarController.tourGuide else {
-            return nil
-        }
-        return tourGuide
-    }
 
-    func setup(for blog: Blog) {
+    @objc static let shared = QuickStartTourGuide()
+
+    private override init() {}
+
+    func setup(for blog: Blog, withCompletedSteps steps: [QuickStartTour] = []) {
         didShowUpgradeToV2Notice(for: blog)
 
 
         let createTour = QuickStartCreateTour()
         completed(tour: createTour, for: blog)
+
+        steps.forEach { (tour) in
+            completed(tour: tour, for: blog)
+        }
     }
 
     @objc func remove(from blog: Blog) {
@@ -151,7 +152,30 @@ open class QuickStartTourGuide: NSObject {
         showCurrentStep()
     }
 
+    // Required for now because obj-c doesn't know about Quick Start tours
+    @objc func completeSiteIconTour(forBlog blog: Blog) {
+        complete(tour: QuickStartSiteIconTour(), silentlyForBlog: blog)
+    }
+
+    @objc func completeViewSiteTour(forBlog blog: Blog) {
+        complete(tour: QuickStartViewTour(), silentlyForBlog: blog)
+    }
+
+    @objc func completeSharingTour(forBlog blog: Blog) {
+        complete(tour: QuickStartShareTour(), silentlyForBlog: blog)
+    }
+
+    /// Complete the specified tour without posting a notification.
+    ///
+    func complete(tour: QuickStartTour, silentlyForBlog blog: Blog) {
+        complete(tour: tour, for: blog, postNotification: false)
+    }
+
     func complete(tour: QuickStartTour, for blog: Blog, postNotification: Bool = true) {
+        guard let tourCount = blog.quickStartTours?.count, tourCount > 0 else {
+            // Tours haven't been set up yet or were skipped. No reason to continue.
+            return
+        }
         completed(tour: tour, for: blog, postNotification: postNotification)
     }
 
@@ -178,7 +202,7 @@ open class QuickStartTourGuide: NSObject {
         }
         if element != currentElement {
             let blogDetailEvents: [QuickStartTourElement] = [.blogDetailNavigation, .checklist, .themes, .viewSite, .sharing]
-            let readerElements: [QuickStartTourElement] = [.readerTab, .selectInterests, .readerSearch]
+            let readerElements: [QuickStartTourElement] = [.readerTab, .readerSearch]
 
             if blogDetailEvents.contains(element) {
                 endCurrentTour()
@@ -255,7 +279,6 @@ open class QuickStartTourGuide: NSObject {
         QuickStartCreateTour(),
         QuickStartViewTour(),
         QuickStartThemeTour(),
-        QuickStartCustomizeTour(),
         QuickStartShareTour(),
         QuickStartPublishTour(),
         QuickStartFollowTour()
@@ -265,9 +288,8 @@ open class QuickStartTourGuide: NSObject {
         QuickStartCreateTour(),
         QuickStartSiteTitleTour(),
         QuickStartSiteIconTour(),
-        QuickStartThemeTour(),
-        QuickStartCustomizeTour(),
-        QuickStartNewPageTour(),
+        QuickStartEditHomepageTour(),
+        QuickStartReviewPagesTour(),
         QuickStartViewTour()
     ]
 

@@ -3,6 +3,126 @@
 This file documents changes in the data model. Please explain any changes to the
 data model as well as any custom migrations.
 
+## WordPress 116
+
+@ceyhun 2021-03-15
+
+- `BlogSettings`: renamed `commentsFromKnownUsersWhitelisted` to `commentsFromKnownUsersAllowlisted`
+- `BlogSettings`: renamed `jetpackLoginWhiteListedIPAddresses` to `jetpackLoginAllowListedIPAddresses`
+- `BlogSettings`: renamed `commentsBlacklistKeys` to `commentsBlocklistKeys`
+
+## WordPress 115
+
+@mindgraffiti 2021-03-10
+
+- Added `blockEmailNotifications` is attribute to `AccountSettings` entity.
+
+## WordPress 114
+
+@aerych 2021-02-25
+
+- Changes Blog inviteLinks relation deletion rule to cascade.
+
+## WordPress 113
+
+@aerych 2021-02-19
+
+- Added `InviteLinks` entity.
+
+## WordPress 112
+
+@scoutharris 2021-01-29
+
+- `ReaderPost`: added  `isSeenSupported` attribute.
+- `ReaderPost`: changed default value of  `isSeen` to `true`. 
+
+## WordPress 111
+
+@scoutharris 2021-01-14
+
+- Added `isSeen` attribute to  `ReaderPost` entity.
+
+## WordPress 110
+
+@emilylaguna 2021-01-05
+
+- Removed an invalid relationship to `ReaderSiteTopic.sites` from the `Comment` entity
+
+## WordPress 109
+
+@mindgraffiti 2020-12-15
+
+- Added `unseenCount` attribute to  `ReaderSiteTopic` entity
+
+## WordPress 108
+
+@scoutharris 2020-12-14
+
+- `ReaderTeamTopic`: added `organizationID`.
+- `ReaderSiteTopic`: made  `organizationID` non-optional.
+- `ReaderPost`: made  `organizationID` non-optional.  
+
+## WordPress 107
+
+@scoutharris 2020-12-09
+
+- `ReaderSiteTopic`: removed `isWPForTeams`, added `organizationID`.
+- `ReaderPost`: removed `isWPForTeams`, added `organizationID`.  
+
+## WordPress 106
+
+@mindgraffiti 2020-12-07
+
+- Added `isWPForTeams` property to `ReaderSiteTopic`.
+
+## WordPress 105
+
+@scoutharris 2020-12-04
+
+- Added `isWPForTeams` property to  `ReaderPost`.
+
+## WordPress 104
+
+@frosty 2020-12-03
+
+- Set the following `Transformable` properties to use the `NSSecureUnarchiveFromData`:
+  - AbstractPost.revisions
+  - Blog.capabilities
+  - Blog.options
+  - Blog.postFormats
+  - MenuItem.classes
+  - Notification.body
+  - Notification.header
+  - Notification.meta
+  - Notification.subject
+  - Post.disabledPublicizeConnections
+  - Theme.tags
+- Set custom transformers on the following properties:
+  - BlogSettings.commentsBlacklistKeys -> SetValueTransformer
+  - BlogSettings.commentsModerationKeys -> SetValueTransformer
+  - BlogSettings.jetpackLoginWhiteListedIPAddresses -> SetValueTransformer
+  - Media.error -> NSErrorValueTransformer
+  - Post.geolocation -> LocationValueTransformer
+
+## WordPress 103
+
+@guarani 2020-11-25
+
+- Add a new `SiteSuggestion` entity to support Gutenberg's xpost implementation
+- Add a one-to-many relationship between `Blog` and `SiteSuggestion`
+
+## WordPress 101
+
+@emilylaguna 2020-10-09
+- Add a relationship between `ReaderCard` and `ReaderSiteTopic`
+
+## WordPress 100
+
+@guarani 2020-10-09
+
+- Add a new `UserSuggestion` entity
+- Add a one-to-many relationship between `Blog` and `UserSuggestion`
+
 ## WordPress 98
 
 @leandrowalonso 2020-07-27
@@ -22,7 +142,7 @@ data model as well as any custom migrations.
 
 @Gio2018 2020-06-12
 
-- Add fileds `supportPriority`, `supportName` and `nonLocalizedShortname` to the `Plan` entity for Zendesk integration.
+- Add fields `supportPriority`, `supportName` and `nonLocalizedShortname` to the `Plan` entity for Zendesk integration.
 
 ## WordPress 94
 

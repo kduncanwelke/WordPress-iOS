@@ -2,11 +2,14 @@
 
 @class Blog;
 @class BlogDetailHeaderView;
+@class CreateButtonCoordinator;
+@protocol BlogDetailHeader;
 
 typedef NS_ENUM(NSUInteger, BlogDetailsSectionCategory) {
     BlogDetailsSectionCategoryDomainCredit,
     BlogDetailsSectionCategoryQuickStart,
     BlogDetailsSectionCategoryGeneral,
+    BlogDetailsSectionCategoryJetpack,
     BlogDetailsSectionCategoryPublish,
     BlogDetailsSectionCategoryPersonalize,
     BlogDetailsSectionCategoryConfigure,
@@ -24,6 +27,7 @@ typedef NS_ENUM(NSUInteger, BlogDetailsSubsection) {
     BlogDetailsSubsectionMedia,
     BlogDetailsSubsectionPages,
     BlogDetailsSubsectionActivity,
+    BlogDetailsSubsectionJetpackSettings,
     BlogDetailsSubsectionComments,
     BlogDetailsSubsectionSharing,
     BlogDetailsSubsectionPeople,
@@ -59,7 +63,7 @@ typedef NS_ENUM(NSInteger, QuickStartTourElement) {
     QuickStartTourElementStats = 18,
     QuickStartTourElementPlans = 19,
     QuickStartTourElementSiteTitle = 20,
-    QuickStartTourElementSelectInterests = 21
+    QuickStartTourElementEditHomepage = 21,
 };
 
 typedef NS_ENUM(NSUInteger, BlogDetailsNavigationSource) {
@@ -129,8 +133,9 @@ typedef NS_ENUM(NSUInteger, BlogDetailsNavigationSource) {
 
 @property (nonatomic, strong, nonnull) Blog * blog;
 @property (nonatomic, strong) id<ScenePresenter> _Nonnull meScenePresenter;
+@property (nonatomic, strong, readonly) CreateButtonCoordinator * _Nullable createButtonCoordinator;
 @property (nonatomic, strong, readwrite) UITableView * _Nonnull tableView;
-@property (nonatomic, strong, readonly) BlogDetailHeaderView * _Nonnull headerView;
+@property (nonatomic, strong, readonly) id<BlogDetailHeader> _Nonnull headerView;
 @property (nonatomic) BOOL shouldScrollToViewSite;
 
 - (id _Nonnull)initWithMeScenePresenter:(id<ScenePresenter> _Nonnull)meScenePresenter;
@@ -139,6 +144,8 @@ typedef NS_ENUM(NSUInteger, BlogDetailsNavigationSource) {
 - (void)configureTableViewData;
 - (void)scrollToElement:(QuickStartTourElement)element;
 
+- (void)switchToBlog:(Blog *)blog;
+- (void)showInitialDetailsForBlog;
 - (void)showPostListFromSource:(BlogDetailsNavigationSource)source;
 - (void)showPageListFromSource:(BlogDetailsNavigationSource)source;
 - (void)showMediaLibraryFromSource:(BlogDetailsNavigationSource)source;

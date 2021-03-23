@@ -27,34 +27,38 @@ class FollowCommentsServiceTests: XCTestCase {
 
     // MARK: - Tests
 
-    func testCanFollowConversationIfReaderTeamTopic() {
+    func testCanFollowConversationIfJetpack() {
         // Arrange
         let remoteMock = ReaderPostServiceRemoteMock()
         seedBlog(isWPForTeams: false)
         let testTopic = seedReaderTeamTopic()
         let testPost = seedReaderPostForTopic(testTopic)
+        testPost.isWPCom = false
+        testPost.isJetpack = true
         let followCommentsService = FollowCommentsService(post: testPost, remote: remoteMock)!
 
         // Act
         let canFollowConversation = followCommentsService.canFollowConversation
 
         // Assert
-        XCTAssertTrue(canFollowConversation, "Can follow comments on post if the topic is ReaderTeamTopic")
+        XCTAssertTrue(canFollowConversation, "Can follow comments on post if the site is DotCom or Jetpack")
     }
 
-    func testCanFollowConversationIfWPForTeams() {
+    func testCanFollowConversationIfDotCom() {
         // Arrange
         let remoteMock = ReaderPostServiceRemoteMock()
-        seedBlog(isWPForTeams: true)
-        let testTopic = seedReaderListTopic()
+        seedBlog(isWPForTeams: false)
+        let testTopic = seedReaderTeamTopic()
         let testPost = seedReaderPostForTopic(testTopic)
+        testPost.isJetpack = false
+        testPost.isWPCom = true
         let followCommentsService = FollowCommentsService(post: testPost, remote: remoteMock)!
 
         // Act
         let canFollowConversation = followCommentsService.canFollowConversation
 
         // Assert
-        XCTAssertTrue(canFollowConversation, "Can follow comments on post if blog is marked as a  P2 blog")
+        XCTAssertTrue(canFollowConversation, "Can follow comments on post if the site is DotCom or Jetpack")
     }
 
     func testCannotFollowConversation() {
@@ -69,7 +73,7 @@ class FollowCommentsServiceTests: XCTestCase {
         let canFollowConversation = followCommentsService.canFollowConversation
 
         // Assert
-        XCTAssertFalse(canFollowConversation, "Can't follow comments on post if the topic isn't a ReaderTeamTopic and the blog isn't marked as a P2 blog")
+        XCTAssertFalse(canFollowConversation, "Can't follow comments on post if the site is not DotCom or Jetpack")
     }
 
     func testToggleSubscriptionToUnsubscribed() {
@@ -81,7 +85,7 @@ class FollowCommentsServiceTests: XCTestCase {
         let isSubscribed = true
 
         // Act
-        followCommentsService.toggleSubscribed(isSubscribed, success: {}, failure: { _ in })
+        followCommentsService.toggleSubscribed(isSubscribed, success: {_ in }, failure: { _ in })
 
         // Assert
         XCTAssertFalse(remoteMock.subscribeToPostCalled, "subscribeToPost should not be called")
@@ -97,7 +101,7 @@ class FollowCommentsServiceTests: XCTestCase {
         let isSubscribed = false
 
         // Act
-        followCommentsService.toggleSubscribed(isSubscribed, success: {}, failure: { _ in })
+        followCommentsService.toggleSubscribed(isSubscribed, success: {_ in }, failure: { _ in })
 
         // Assert
         XCTAssertTrue(remoteMock.subscribeToPostCalled, "subscribeToPost should be called")
@@ -113,14 +117,14 @@ class FollowCommentsServiceTests: XCTestCase {
 
         override func subscribeToPost(with postID: Int,
                                       for siteID: Int,
-                                      success: @escaping () -> Void,
+                                      success: @escaping (Bool) -> Void,
                                       failure: @escaping (Error?) -> Void) {
             subscribeToPostCalled = true
         }
 
         override func unsubscribeFromPost(with postID: Int,
                                           for siteID: Int,
-                                          success: @escaping () -> Void,
+                                          success: @escaping (Bool) -> Void,
                                           failure: @escaping (Error) -> Void) {
             unsubscribeFromPostCalled = true
         }

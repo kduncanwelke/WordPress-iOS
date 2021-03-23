@@ -1,5 +1,55 @@
 import Foundation
 import WordPressShared
+import WordPressFlux
+
+
+// MARK: - Reader Notifications
+
+extension NSNotification.Name {
+    // Sent when a site or a tag is unfollowed via Reader Manage screen.
+    static let ReaderTopicUnfollowed = NSNotification.Name(rawValue: "ReaderTopicUnfollowed")
+    // Sent when a site is followed via Reader Manage screen.
+    static let ReaderSiteFollowed = NSNotification.Name(rawValue: "ReaderSiteFollowed")
+    // Sent when a post's seen state has been toggled.
+    static let ReaderPostSeenToggled = NSNotification.Name(rawValue: "ReaderPostSeenToggled")
+    // Sent when a site is blocked.
+    static let ReaderSiteBlocked = NSNotification.Name(rawValue: "ReaderSiteBlocked")
+}
+
+struct ReaderNotificationKeys {
+    static let post = "post"
+    static let topic = "topic"
+}
+
+// Used for event tracking properties
+enum ReaderPostMenuSource {
+    case card
+    case details
+
+    var description: String {
+        switch self {
+        case .card:
+            return "post_card"
+        case .details:
+            return "post_details"
+        }
+    }
+}
+
+// Titles for post menu options
+struct ReaderPostMenuButtonTitles {
+    static let cancel = NSLocalizedString("Cancel", comment: "The title of a cancel button.")
+    static let blockSite = NSLocalizedString("Block this site", comment: "The title of a button that triggers blocking a site from the user's reader.")
+    static let reportPost = NSLocalizedString("Report this post", comment: "The title of a button that triggers reporting of a post from the user's reader.")
+    static let share = NSLocalizedString("Share", comment: "Verb. Title of a button. Pressing lets the user share a post to others.")
+    static let visit = NSLocalizedString("Visit", comment: "An option to visit the site to which a specific post belongs")
+    static let unfollow = NSLocalizedString("Unfollow site", comment: "Verb. An option to unfollow a site.")
+    static let follow = NSLocalizedString("Follow site", comment: "Verb. An option to follow a site.")
+    static let subscribe = NSLocalizedString("Turn on site notifications", comment: "Verb. An option to switch on site notifications.")
+    static let unsubscribe = NSLocalizedString("Turn off site notifications", comment: "Verb. An option to switch off site notifications.")
+    static let markSeen = NSLocalizedString("Mark as seen", comment: "An option to mark a post as seen.")
+    static let markUnseen = NSLocalizedString("Mark as unseen", comment: "An option to mark a post as unseen.")
+}
 
 /// A collection of helper methods used by the Reader.
 ///
@@ -139,17 +189,17 @@ import WordPressShared
             stat = .readerFreshlyPressedLoaded
 
         } else if topicIsFollowing(topic) {
-            WPAnalytics.track(.readerFollowingShown, properties: properties)
+            WPAnalytics.trackReader(.readerFollowingShown, properties: properties)
 
         } else if topicIsLiked(topic) {
-            WPAnalytics.track(.readerLikedShown, properties: properties)
+            WPAnalytics.trackReader(.readerLikedShown, properties: properties)
 
         } else if isTopicSite(topic) {
-            WPAnalytics.track(.readerBlogPreviewed, properties: properties)
+            WPAnalytics.trackReader(.readerBlogPreviewed, properties: properties)
 
         } else if isTopicDefault(topic) && topicIsDiscover(topic) {
             // Tracks Discover only if it was one of the default menu items.
-            WPAnalytics.track(.readerDiscoverShown, properties: properties)
+            WPAnalytics.trackReaderEvent(.readerDiscoverShown, properties: properties)
 
         } else if isTopicList(topic) {
             stat = .readerListLoaded
@@ -157,7 +207,10 @@ import WordPressShared
         } else if isTopicTag(topic) {
             stat = .readerTagLoaded
 
+        } else if let teamTopic = topic as? ReaderTeamTopic {
+            WPAnalytics.trackReader(teamTopic.shownTrackEvent, properties: properties)
         }
+
         if stat != nil {
             WPAnalytics.track(stat!, withProperties: properties)
         }
@@ -215,9 +268,12 @@ import WordPressShared
 
         let userAgent = WPUserAgent.wordPress()
         let path  = NSString(format: "%@?%@", pixel, params.componentsJoined(by: "&")) as String
-        let url = URL(string: path)
 
-        let request = NSMutableURLRequest(url: url!)
+        guard let url = URL(string: path) else {
+            return
+        }
+
+        let request = NSMutableURLRequest(url: url)
         request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
         request.addValue(pixelStatReferrer, forHTTPHeaderField: "Referer")
 
@@ -227,12 +283,7 @@ import WordPressShared
     }
 
     @objc open class func isUserAdminOnSiteWithID(_ siteID: NSNumber) -> Bool {
-        let context = ContextManager.sharedInstance().mainContext
-        let blogService = BlogService(managedObjectContext: context)
-        if let blog = blogService.blog(byBlogId: siteID) {
-            return blog.isAdmin
-        }
-        return false
+        Blog.lookup(withID: siteID, in: ContextManager.sharedInstance().mainContext)?.isAdmin ?? false
     }
 
     // convenience method that returns the topic type
@@ -262,7 +313,7 @@ import WordPressShared
             return .tag
         }
         if topic is ReaderTeamTopic {
-            return .team
+            return .organization
         }
         return .noTopic
     }
@@ -271,6 +322,99 @@ import WordPressShared
 
     @objc open class func isLoggedIn() -> Bool {
         return AccountHelper.isDotcomAvailable()
+    }
+
+    // MARK: ActionDispatcher Notification helper
+
+    class func dispatchToggleSeenMessage(post: ReaderPost, success: Bool) {
+        var notice: Notice {
+            if success {
+                return Notice(title: post.isSeen ? NoticeMessages.seenSuccess : NoticeMessages.unseenSuccess)
+            }
+            return Notice(title: post.isSeen ? NoticeMessages.unseenFail : NoticeMessages.seenFail)
+        }
+
+        dispatchNotice(notice)
+    }
+
+    class func dispatchToggleFollowSiteMessage(post: ReaderPost, success: Bool) {
+        dispatchToggleFollowSiteMessage(siteTitle: post.blogNameForDisplay(), siteID: post.siteID, following: post.isFollowing, success: success)
+    }
+
+    class func dispatchToggleFollowSiteMessage(topic: ReaderSiteTopic, success: Bool) {
+        dispatchToggleFollowSiteMessage(siteTitle: topic.title, siteID: topic.siteID, following: topic.following, success: success)
+    }
+
+    private class func dispatchToggleFollowSiteMessage(siteTitle: String, siteID: NSNumber, following: Bool, success: Bool) {
+        var notice: Notice
+
+        if success {
+            notice = following ?
+                followedSiteNotice(siteTitle: siteTitle, siteID: siteID) :
+                Notice(title: NoticeMessages.unfollowSuccess, message: siteTitle)
+        } else {
+            notice = Notice(title: following ? NoticeMessages.unfollowFail : NoticeMessages.followFail)
+        }
+
+        dispatchNotice(notice)
+    }
+
+    class func dispatchToggleNotificationMessage(topic: ReaderSiteTopic, success: Bool) {
+        var notice: Notice {
+            if success {
+                return Notice(title: topic.isSubscribedForPostNotifications ? NoticeMessages.notificationOnSuccess : NoticeMessages.notificationOffSuccess)
+            }
+            return Notice(title: topic.isSubscribedForPostNotifications ? NoticeMessages.notificationOffFail : NoticeMessages.notificationOnFail)
+        }
+
+        dispatchNotice(notice)
+    }
+
+    class func dispatchSiteBlockedMessage(post: ReaderPost, success: Bool) {
+        var notice: Notice {
+            if success {
+                return Notice(title: NoticeMessages.blockSiteSuccess, message: post.blogNameForDisplay())
+            }
+            return Notice(title: NoticeMessages.blockSiteFail, message: post.blogNameForDisplay())
+        }
+
+        dispatchNotice(notice)
+    }
+
+    private class func dispatchNotice(_ notice: Notice) {
+        ActionDispatcher.dispatch(NoticeAction.post(notice))
+    }
+
+    private class func followedSiteNotice(siteTitle: String, siteID: NSNumber) -> Notice {
+        let notice = Notice(title: String(format: NoticeMessages.followSuccess, siteTitle),
+                            message: NoticeMessages.enableNotifications,
+                            actionTitle: NoticeMessages.enableButtonLabel) { _ in
+            let service = ReaderTopicService(managedObjectContext: ContextManager.sharedInstance().mainContext)
+            service.toggleSubscribingNotifications(for: siteID.intValue, subscribe: true, {
+                WPAnalytics.track(.readerListNotificationEnabled)
+            })
+        }
+
+        return notice
+    }
+
+    private struct NoticeMessages {
+        static let seenFail = NSLocalizedString("Unable to mark post seen", comment: "Notice title when updating a post's seen status failed.")
+        static let unseenFail = NSLocalizedString("Unable to mark post unseen", comment: "Notice title when updating a post's unseen status failed.")
+        static let seenSuccess = NSLocalizedString("Marked post as seen", comment: "Notice title when updating a post's seen status succeeds.")
+        static let unseenSuccess = NSLocalizedString("Marked post as unseen", comment: "Notice title when updating a post's unseen status succeeds.")
+        static let followSuccess = NSLocalizedString("Following %1$@", comment: "Notice title when following a site succeeds. %1$@ is a placeholder for the site name.")
+        static let unfollowSuccess = NSLocalizedString("Unfollowed site", comment: "Notice title when unfollowing a site succeeds.")
+        static let followFail = NSLocalizedString("Unable to follow site", comment: "Notice title when following a site fails.")
+        static let unfollowFail = NSLocalizedString("Unable to unfollow site", comment: "Notice title when unfollowing a site fails.")
+        static let notificationOnFail = NSLocalizedString("Unable to turn on site notifications", comment: "Notice title when turning site notifications on fails.")
+        static let notificationOffFail = NSLocalizedString("Unable to turn off site notifications", comment: "Notice title when turning site notifications off fails.")
+        static let notificationOnSuccess = NSLocalizedString("Turned on site notifications", comment: "Notice title when turning site notifications on succeeds.")
+        static let notificationOffSuccess = NSLocalizedString("Turned off site notifications", comment: "Notice title when turning site notifications off succeeds.")
+        static let enableNotifications = NSLocalizedString("Enable site notifications?", comment: "Message prompting user to enable site notifications.")
+        static let enableButtonLabel = NSLocalizedString("Enable", comment: "Button title for the enable site notifications action.")
+        static let blockSiteSuccess = NSLocalizedString("Blocked site", comment: "Notice title when blocking a site succeeds.")
+        static let blockSiteFail = NSLocalizedString("Unable to block site", comment: "Notice title when blocking a site fails.")
     }
 }
 
@@ -291,6 +435,7 @@ extension ReaderHelpers {
             guard let leftTopic = $0.content.topic, let rightTopic = $1.content.topic else {
                 return true
             }
+
             // first item: Following
             if topicIsFollowing(leftTopic) {
                 return true
@@ -298,6 +443,7 @@ extension ReaderHelpers {
             if topicIsFollowing(rightTopic) {
                 return false
             }
+
             // second item: Discover
             if topicIsDiscover(leftTopic) {
                 return true
@@ -305,27 +451,32 @@ extension ReaderHelpers {
             if topicIsDiscover(rightTopic) {
                 return false
             }
+
             // third item: Likes
             if topicIsLiked(leftTopic) {
                 return true
             }
             if topicIsLiked(rightTopic) {
                 return false
-            // any other items: sort them alphabetically, grouped by topic type
             }
+
+            // any other items: sort them alphabetically, grouped by topic type
             if leftTopic.type == rightTopic.type {
                 return leftTopic.title < rightTopic.title
             }
+
             return true
         }
 
         // fourth item: Saved. It's manually inserted after the sorting
         let savedPosition = min(mutableItems.count, defaultSavedItemPosition)
         mutableItems.insert(ReaderTabItem(ReaderContent(topic: nil, contentType: .saved)), at: savedPosition)
+
         // in case of log in with a self hosted site, prepend a 'dummy' Following tab
         if !isLoggedIn() {
             mutableItems.insert(ReaderTabItem(ReaderContent(topic: nil, contentType: .selfHostedFollowing)), at: 0)
         }
+
         return mutableItems
     }
 }
@@ -340,6 +491,15 @@ enum ReaderTopicType {
     case search
     case site
     case tag
-    case team
+    case organization
     case noTopic
+}
+
+@objc enum SiteOrganizationType: Int {
+    // site does not belong to an organization
+    case none
+    // site is an A8C P2
+    case automattic
+    // site is a non-A8C P2
+    case p2
 }

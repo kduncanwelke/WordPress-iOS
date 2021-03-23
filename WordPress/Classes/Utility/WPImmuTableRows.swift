@@ -68,12 +68,23 @@ struct EditableTextRow: ImmuTableRow {
 
     let title: String
     let value: String
+    let accessoryImage: UIImage?
     let action: ImmuTableAction?
+
+    init(title: String, value: String, accessoryImage: UIImage? = nil, action: ImmuTableAction?) {
+        self.title = title
+        self.value = value
+        self.accessoryImage = accessoryImage
+        self.action = action
+    }
 
     func configureCell(_ cell: UITableViewCell) {
         cell.textLabel?.text = title
         cell.detailTextLabel?.text = value
         cell.accessoryType = .disclosureIndicator
+        if accessoryImage != nil {
+            cell.accessoryView = UIImageView(image: accessoryImage)
+        }
 
         WPStyleGuide.configureTableViewCell(cell)
     }
@@ -140,11 +151,7 @@ struct ActivityIndicatorRow: ImmuTableRow {
         cell.textLabel?.text = title
 
         let indicator: UIActivityIndicatorView
-        if #available(iOS 13, *) {
-            indicator = UIActivityIndicatorView(style: .medium)
-        } else {
-            indicator = UIActivityIndicatorView(style: .gray)
-        }
+        indicator = UIActivityIndicatorView(style: .medium)
 
         if animating {
             indicator.startAnimating()
@@ -280,14 +287,21 @@ struct SwitchRow: ImmuTableRow {
     let title: String
     let value: Bool
     let icon: UIImage?
+    let isUserInteractionEnabled: Bool
     let action: ImmuTableAction? = nil
     let onChange: (Bool) -> Void
     let accessibilityIdentifier: String?
 
-    init(title: String, value: Bool, icon: UIImage? = nil, onChange: @escaping (Bool) -> Void, accessibilityIdentifier: String? = nil) {
+    init(title: String,
+         value: Bool,
+         icon: UIImage? = nil,
+         isUserInteractionEnabled: Bool = true,
+         onChange: @escaping (Bool) -> Void,
+         accessibilityIdentifier: String? = nil) {
         self.title = title
         self.value = value
         self.icon = icon
+        self.isUserInteractionEnabled = isUserInteractionEnabled
         self.onChange = onChange
         self.accessibilityIdentifier = accessibilityIdentifier
     }
@@ -297,6 +311,7 @@ struct SwitchRow: ImmuTableRow {
 
         cell.textLabel?.text = title
         cell.imageView?.image = icon
+        cell.isUserInteractionEnabled = isUserInteractionEnabled
         cell.selectionStyle = .none
         cell.on = value
         cell.onChange = onChange

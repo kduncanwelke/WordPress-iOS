@@ -5,17 +5,20 @@ enum FeatureFlag: Int, CaseIterable, OverrideableFlag {
     case jetpackDisconnect
     case debugMenu
     case readerCSS
-    case unifiedAuth
-    case meMove
-    case floatingCreateButton
-    case newReaderNavigation
-    case swiftCoreData
     case homepageSettings
-    case readerImprovementsPhase2
     case gutenbergMentions
-    case gutenbergModalLayoutPicker
-    case whatIsNew
+    case gutenbergXposts
     case newNavBarAppearance
+    case unifiedPrologueCarousel
+    case stories
+    case siteCreationHomePagePicker
+    case jetpackScan
+    case activityLogFilters
+    case jetpackBackupAndRestore
+    case todayWidget
+    case milestoneNotifications
+    case commentFilters
+    case newLikeNotifications
 
     /// Returns a boolean indicating if the feature is enabled
     var enabled: Bool {
@@ -30,36 +33,40 @@ enum FeatureFlag: Int, CaseIterable, OverrideableFlag {
             return BuildConfiguration.current ~= [.localDeveloper, .a8cBranchTest]
         case .readerCSS:
             return false
-        case .unifiedAuth:
-            return true
-        case .meMove:
-            return true
-        case .floatingCreateButton:
-            return true
-        case .newReaderNavigation:
-            return true
-        case .swiftCoreData:
-            return BuildConfiguration.current == .localDeveloper
         case .homepageSettings:
-            return true
-        case .readerImprovementsPhase2:
             return true
         case .gutenbergMentions:
             return true
-        case .gutenbergModalLayoutPicker:
-            return false
-        case .whatIsNew:
+        case .gutenbergXposts:
             return true
         case .newNavBarAppearance:
-            return BuildConfiguration.current == .localDeveloper
+            return true
+        case .unifiedPrologueCarousel:
+            return false
+        case .stories:
+            return true
+        case .siteCreationHomePagePicker:
+            return true
+        case .jetpackScan:
+            return true
+        case .activityLogFilters:
+            return true
+        case .jetpackBackupAndRestore:
+            return true
+        case .todayWidget:
+            return true
+        case .milestoneNotifications:
+            return true
+        case .commentFilters:
+            return true
+        case .newLikeNotifications:
+            return false
         }
     }
 
     /// This key must match the server-side one for remote feature flagging
     var remoteKey: String? {
         switch self {
-            case .unifiedAuth:
-                return "wordpress_ios_unified_login_and_signup"
             default:
                 return nil
         }
@@ -86,28 +93,34 @@ extension FeatureFlag {
             return "Debug menu"
         case .readerCSS:
             return "Ignore Reader CSS Cache"
-        case .unifiedAuth:
-            return "Unified Auth"
-        case .meMove:
-            return "Move the Me Scene to My Site"
-        case .floatingCreateButton:
-            return "Floating Create Button"
-        case .newReaderNavigation:
-            return "New Reader Navigation"
-        case .swiftCoreData:
-            return "Migrate Core Data Stack to Swift"
         case .homepageSettings:
             return "Homepage Settings"
-        case .readerImprovementsPhase2:
-            return "Reader Improvements Phase 2"
         case .gutenbergMentions:
             return "Mentions in Gutenberg"
-        case .gutenbergModalLayoutPicker:
-            return "Gutenberg Modal Layout Picker"
-        case .whatIsNew:
-            return "What's New / Feature Announcement"
+        case .gutenbergXposts:
+            return "Xposts in Gutenberg"
         case .newNavBarAppearance:
             return "New Navigation Bar Appearance"
+        case .unifiedPrologueCarousel:
+            return "Unified Prologue Carousel"
+        case .stories:
+            return "Stories"
+        case .siteCreationHomePagePicker:
+            return "Site Creation: Home Page Picker"
+        case .jetpackScan:
+            return "Jetpack Scan"
+        case .activityLogFilters:
+            return "Jetpack's Activity Log Filters"
+        case .jetpackBackupAndRestore:
+            return "Jetpack Backup and Restore"
+        case .todayWidget:
+            return "iOS 14 Today Widget"
+        case .milestoneNotifications:
+            return "Milestone notifications"
+        case .commentFilters:
+            return "Comment filters"
+        case .newLikeNotifications:
+            return "New Like Notifications"
         }
     }
 
@@ -115,13 +128,9 @@ extension FeatureFlag {
         switch self {
         case .debugMenu:
             return false
-        case .floatingCreateButton:
-            return false
-        case .newReaderNavigation:
-            return false
-        case .swiftCoreData:
-            return false
         case .newNavBarAppearance:
+            return false
+        case .todayWidget:
             return false
         default:
             return true

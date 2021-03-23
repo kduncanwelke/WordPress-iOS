@@ -11,7 +11,11 @@ import AutomatticTracks
             return true
         }
 
-        // 3. let's see if it's our wpcom scheme
+        if UniversalLinkRouter.shared.canHandle(url: url) {
+            UniversalLinkRouter.shared.handle(url: url, shouldTrack: true)
+            return true
+        }
+
         guard url.scheme == WPComScheme else {
             return false
         }
@@ -47,13 +51,17 @@ import AutomatticTracks
 
     private func handleMagicLogin(url: URL) -> Bool {
         DDLogInfo("App launched with authentication link")
-        let allowWordPressComAuth = !AccountHelper.isDotcomAvailable()
+
+        guard AccountHelper.noWordPressDotComAccount || url.isJetpackConnect else {
+            DDLogInfo("The user clicked on a login or signup magic link when already logged into a WPCom account.  Since this is not a Jetpack connection attempt we're cancelling the operation.")
+            return false
+        }
+
         guard let rvc = window?.rootViewController else {
             return false
         }
-        return WordPressAuthenticator.openAuthenticationURL(url,
-                                                            allowWordPressComAuth: allowWordPressComAuth,
-                                                            fromRootViewController: rvc)
+
+        return WordPressAuthenticator.openAuthenticationURL(url, fromRootViewController: rvc)
     }
 
     private func handleViewPost(url: URL) -> Bool {
@@ -69,11 +77,10 @@ import AutomatticTracks
     }
 
     private func handleViewStats(url: URL) -> Bool {
-        let blogService = BlogService(managedObjectContext: ContextManager.sharedInstance().mainContext)
 
         guard let params = url.queryItems,
             let siteId = params.intValue(of: "siteId"),
-            let blog = blogService.blog(byBlogId: NSNumber(value: siteId)) else {
+            let blog = try? Blog.lookup(withID: siteId, in: ContextManager.shared.mainContext) else {
             return false
         }
 
@@ -108,7 +115,7 @@ import AutomatticTracks
         }
 
         if debugKey == ApiCredentials.debuggingKey(), debugType == "force_crash" {
-            CrashLogging.crash()
+            WordPressAppDelegate.crashLogging?.crash()
         }
 
         return true
@@ -150,7 +157,7 @@ import AutomatticTracks
 
         WPTabBarController.sharedInstance()?.present(postVC, animated: true, completion: nil)
 
-        WPAppAnalytics.track(.editorCreatedPost, withProperties: ["tap_source": "url_scheme", WPAppAnalyticsKeyPostType: "post"])
+        WPAppAnalytics.track(.editorCreatedPost, withProperties: [WPAppAnalyticsKeyTapSource: "url_scheme", WPAppAnalyticsKeyPostType: "post"])
 
         return true
     }

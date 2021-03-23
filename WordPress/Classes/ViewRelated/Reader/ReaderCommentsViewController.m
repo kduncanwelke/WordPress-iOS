@@ -160,8 +160,14 @@ static NSString *RestorablePostObjectIDURLKey = @"RestorablePostObjectIDURLKey";
 {
     [super viewDidAppear:animated];
     [self.tableView reloadData];
-}
 
+    if(self.promptToAddComment){
+        [self.replyTextView becomeFirstResponder];
+
+        // Reset the value to prevent prompting again if the user leaves and comes back
+        self.promptToAddComment = NO;
+    }
+}
 
 - (void)viewWillDisappear:(BOOL)animated
 {
@@ -199,13 +205,9 @@ static NSString *RestorablePostObjectIDURLKey = @"RestorablePostObjectIDURLKey";
 {
     [super traitCollectionDidChange:previousTraitCollection];
 
-    if (@available(iOS 13.0, *)) {
-        // Update cached attributed strings when toggling light/dark mode.
-        self.userInterfaceStyleChanged = self.traitCollection.userInterfaceStyle != previousTraitCollection.userInterfaceStyle;
-        [self refreshTableViewAndNoResultsView];
-    } else {
-        self.userInterfaceStyleChanged = NO;
-    }
+    // Update cached attributed strings when toggling light/dark mode.
+    self.userInterfaceStyleChanged = self.traitCollection.userInterfaceStyle != previousTraitCollection.userInterfaceStyle;
+    [self refreshTableViewAndNoResultsView];
 }
 
 #pragma mark - Split View Support
@@ -226,7 +228,7 @@ static NSString *RestorablePostObjectIDURLKey = @"RestorablePostObjectIDURLKey";
     NSMutableDictionary *properties = [NSMutableDictionary dictionary];
     properties[WPAppAnalyticsKeyPostID] = self.post.postID;
     properties[WPAppAnalyticsKeyBlogID] = self.post.siteID;
-    [WPAppAnalytics track:WPAnalyticsStatReaderArticleCommentsOpened withProperties:properties];
+    [WPAnalytics trackReaderStat:WPAnalyticsStatReaderArticleCommentsOpened properties:properties];
 }
 
 -(void)trackCommentLikedOrUnliked:(Comment *) comment {
@@ -241,21 +243,22 @@ static NSString *RestorablePostObjectIDURLKey = @"RestorablePostObjectIDURLKey";
     NSMutableDictionary *properties = [NSMutableDictionary dictionary];
     properties[WPAppAnalyticsKeyPostID] = post.postID;
     properties[WPAppAnalyticsKeyBlogID] = post.siteID;
-    [WPAppAnalytics track: stat withProperties:properties];
+    [WPAnalytics trackReaderStat:stat properties:properties];
 }
 
--(void)trackReplyToComment {
+-(void)trackReplyTo:(BOOL)replyTarget {
     ReaderPost *post = self.post;
     NSDictionary *railcar = post.railcarDictionary;
     NSMutableDictionary *properties = [NSMutableDictionary dictionary];
     properties[WPAppAnalyticsKeyBlogID] = post.siteID;
     properties[WPAppAnalyticsKeyPostID] = post.postID;
     properties[WPAppAnalyticsKeyIsJetpack] = @(post.isJetpack);
+    properties[WPAppAnalyticsKeyReplyingTo] = replyTarget ? @"comment" : @"post";
     if (post.feedID && post.feedItemID) {
         properties[WPAppAnalyticsKeyFeedID] = post.feedID;
         properties[WPAppAnalyticsKeyFeedItemID] = post.feedItemID;
     }
-    [WPAppAnalytics track:WPAnalyticsStatReaderArticleCommentedOn withProperties:properties];
+    [WPAnalytics trackReaderStat:WPAnalyticsStatReaderArticleCommentedOn properties:properties];
     if (railcar) {
         [WPAppAnalytics trackTrainTracksInteraction:WPAnalyticsStatTrainTracksInteract withProperties:railcar];
     }
@@ -379,9 +382,7 @@ static NSString *RestorablePostObjectIDURLKey = @"RestorablePostObjectIDURLKey";
     NSNumber *siteID = self.siteID;
     NSParameterAssert(siteID);
 
-    self.suggestionsTableView = [SuggestionsTableView new];
-    self.suggestionsTableView.siteID = siteID;
-    self.suggestionsTableView.suggestionsDelegate = self;
+    self.suggestionsTableView = [[SuggestionsTableView alloc] initWithSiteID:siteID suggestionType:SuggestionTypeMention delegate:self];
     [self.suggestionsTableView setTranslatesAutoresizingMaskIntoConstraints:NO];
     [self.view addSubview:self.suggestionsTableView];
 }
@@ -549,8 +550,8 @@ static NSString *RestorablePostObjectIDURLKey = @"RestorablePostObjectIDURLKey";
         return _activityFooter;
     }
 
-    _activityFooter = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleWhite];
-    _activityFooter.activityIndicatorViewStyle = UIActivityIndicatorViewStyleGray;
+    _activityFooter = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+    _activityFooter.activityIndicatorViewStyle = UIActivityIndicatorViewStyleMedium;
     _activityFooter.hidesWhenStopped = YES;
     _activityFooter.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin;
     [_activityFooter stopAnimating];
@@ -788,6 +789,7 @@ static NSString *RestorablePostObjectIDURLKey = @"RestorablePostObjectIDURLKey";
 {
     __typeof(self) __weak weakSelf = self;
 
+    BOOL replyToComment = self.indexPathForCommentRepliedTo != nil;
     UINotificationFeedbackGenerator *generator = [UINotificationFeedbackGenerator new];
     [generator prepare];
 
@@ -796,7 +798,7 @@ static NSString *RestorablePostObjectIDURLKey = @"RestorablePostObjectIDURLKey";
         NSString *successMessage = NSLocalizedString(@"Reply Sent!", @"The app successfully sent a comment");
         [weakSelf displayNoticeWithTitle:successMessage message:nil];
 
-        [weakSelf trackReplyToComment];
+        [weakSelf trackReplyTo:replyToComment];
         [weakSelf.tableView deselectSelectedRowWithAnimation:YES];
         [weakSelf refreshReplyTextViewPlaceholder];
 
@@ -814,7 +816,7 @@ static NSString *RestorablePostObjectIDURLKey = @"RestorablePostObjectIDURLKey";
 
     CommentService *service = [[CommentService alloc] initWithManagedObjectContext:self.managedObjectContext];
 
-    if (self.indexPathForCommentRepliedTo) {
+    if (replyToComment) {
         Comment *comment = [self.tableViewHandler.resultsController objectAtIndexPath:self.indexPathForCommentRepliedTo];
         [service replyToHierarchicalCommentWithID:comment.commentID
                                              post:self.post
@@ -1213,15 +1215,30 @@ static NSString *RestorablePostObjectIDURLKey = @"RestorablePostObjectIDURLKey";
     self.postHeaderView.isSubscribedToPost = newIsSubscribed;
 
     // Define success block
-    void (^successBlock)(void) = ^void() {
-        NSString *title = newIsSubscribed
-            ? NSLocalizedString(@"Successfully subscribed to the comments", @"The app successfully subscribed to the comments for the post")
-            : NSLocalizedString(@"Successfully unsubscribed from the comments", @"The app successfully unsubscribed from the comments for the post");
+    void (^successBlock)(BOOL taskSucceeded) = ^void(BOOL taskSucceeded) {
+        if (taskSucceeded == NO) {
+            NSString *title = newIsSubscribed
+                ? NSLocalizedString(@"Unable to follow conversation", @"The app failed to subscribe to the comments for the post")
+                : NSLocalizedString(@"Failed to unfollow conversation", @"The app failed to unsubscribe from the comments for the post");
 
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [generator notificationOccurred:UINotificationFeedbackTypeSuccess];
-            [weakSelf displayNoticeWithTitle:title message:nil];
-        });
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [generator notificationOccurred:UINotificationFeedbackTypeSuccess];
+                [weakSelf displayNoticeWithTitle:title message:nil];
+
+                // The task failed, fall back to the old subscription status
+                self.postHeaderView.isSubscribedToPost = oldIsSubscribed;
+            });
+        } else {
+            NSString *title = newIsSubscribed
+                ? NSLocalizedString(@"Successfully followed conversation", @"The app successfully subscribed to the comments for the post")
+                : NSLocalizedString(@"Successfully unfollowed conversation", @"The app successfully unsubscribed from the comments for the post");
+
+
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [generator notificationOccurred:UINotificationFeedbackTypeSuccess];
+                [weakSelf displayNoticeWithTitle:title message:nil];
+            });
+        }
     };
 
     // Define failure block
@@ -1229,8 +1246,8 @@ static NSString *RestorablePostObjectIDURLKey = @"RestorablePostObjectIDURLKey";
         DDLogError(@"Error toggling subscription status: %@", error);
 
         NSString *title = newIsSubscribed
-            ? NSLocalizedString(@"There has been an unexpected error while subscribing to the comments", "The app failed to subscribe to the comments for the post")
-            : NSLocalizedString(@"There has been an unexpected error while unsubscribing from the comments", "The app failed to unsubscribe from the comments for the post");
+            ? NSLocalizedString(@"Could not subscribe to comments", "The app failed to subscribe to the comments for the post")
+            : NSLocalizedString(@"Could not unsubscribe from comments", "The app failed to unsubscribe from the comments for the post");
 
         dispatch_async(dispatch_get_main_queue(), ^{
             [generator notificationOccurred:UINotificationFeedbackTypeError];
